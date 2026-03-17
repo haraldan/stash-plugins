@@ -29,14 +29,6 @@
 
     const markersTabId = 'performer-details-tab-markers';
 
-    function toBase64Utf8(str) {
-        return btoa(
-            encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) =>
-                String.fromCharCode('0x' + p1)
-            )
-        );
-    }
-
     function performerPageHandler() {
         waitForElementClass("nav-tabs", async function (className, el) {
             const navTabs = el.item(0);
@@ -57,30 +49,33 @@
 
                 const response = await getPerformerMarkersCount(performerId);
                 const markersCount = response?.data?.findSceneMarkers?.count || 0;
-
                 document.querySelector(`#${markersTabId} span`).innerHTML = markersCount;
 
-                const performerName =
-                    document.querySelector('.performer-head h2')?.innerText || '';
+                // When clicking the tab, navigate to markers page and inject filter
+                markerTab.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    window.location.href = `${window.location.origin}/scenes/markers`;
 
-                // Legacy filter structure required by Stash v0.30.1
-                const filterObject = {
-                    scene_marker_filter: {
-                        performers: {
-                            value: [performerId],
-                            items: [{ id: performerId, label: performerName }],
-                            modifier: "INCLUDES_ALL"
+                    // Wait for markers page to load
+                    const observer = new MutationObserver((mutations, obs) => {
+                        const store = window.stash?.store;
+                        if (store && document.querySelector('.scenes-markers-page')) {
+                            // Dispatch the performer filter
+                            store.dispatch({
+                                type: "SET_MARKER_FILTER",
+                                payload: {
+                                    performers: {
+                                        value: [performerId],
+                                        modifier: "INCLUDES_ALL"
+                                    }
+                                }
+                            });
+                            obs.disconnect();
                         }
-                    }
-                };
+                    });
 
-                const jsonStr = JSON.stringify(filterObject);
-                const base64Filter = toBase64Utf8(jsonStr);
-
-                const markersUrl =
-                    `${window.location.origin}/scenes/markers?c=${encodeURIComponent(base64Filter)}&sortby=created_at&sortdir=desc`;
-
-                markerTab.href = markersUrl;
+                    observer.observe(document.body, { childList: true, subtree: true });
+                });
             }
         });
     }
