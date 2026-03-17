@@ -29,10 +29,10 @@
 
     const markersTabId = 'performer-details-tab-markers';
 
-    // Converts performer into the tuple-style string used in working URLs
+    // Generates the tuple-style filter string Stash expects
     function tupleEncodePerformer(performerId, performerName) {
-        // Properly quote all field names
-        return `(%22type%22:%22performers%22,%22modifier%22:%22INCLUDES_ALL%22,%22value%22:(%22items%22:%5B(%22id%22:%22${performerId}%22,%22label%22:%22${encodeURIComponent(performerName)}%22)%5D,%22excluded%22:%5B%5D))`;
+        const encodedName = performerName.replace(/ /g, '%20'); // encode spaces
+        return `(%22type%22:%22performers%22,%22modifier%22:%22INCLUDES_ALL%22,%22value%22:(%22items%22:%5B(%22id%22:%22${performerId}%22,%22label%22:%22${encodedName}%22)%5D,%22excluded%22:%5B%5D))`;
     }
 
     function performerPageHandler() {
@@ -53,17 +53,16 @@
                     .split('/')
                     .find((o, i, arr) => i > 1 && arr[i - 1] === 'performers');
 
-                const performerName = document.querySelector('.performer-head h2')?.innerText || '';
+                const performerName =
+                    document.querySelector('.performer-head h2')?.innerText || '';
 
                 const response = await getPerformerMarkersCount(performerId);
                 const markersCount = response?.data?.findSceneMarkers?.count || 0;
                 document.querySelector(`#${markersTabId} span`).innerHTML = markersCount;
 
-                // Create the tuple-style filter string
+                // Generate the correct tuple-style filter URL
                 const tupleFilter = tupleEncodePerformer(performerId, performerName);
-                const encodedFilter = encodeURIComponent(tupleFilter);
-
-                const markersUrl = `${window.location.origin}/scenes/markers?c=${encodedFilter}&sortby=created_at&sortdir=desc`;
+                const markersUrl = `${window.location.origin}/scenes/markers?c=${tupleFilter}&sortby=created_at&sortdir=desc`;
 
                 markerTab.href = markersUrl;
             }
