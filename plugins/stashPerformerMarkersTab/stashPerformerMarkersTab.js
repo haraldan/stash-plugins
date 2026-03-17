@@ -29,6 +29,11 @@
 
     const markersTabId = 'performer-details-tab-markers';
 
+    // Remove disambiguation (text in parentheses) from performer name
+    function cleanPerformerName(name) {
+        return name.replace(/\s*\(.*?\)\s*$/, '');
+    }
+
     // Generates the tuple-style filter string Stash expects
     function tupleEncodePerformer(performerId, performerName) {
         const encodedName = performerName.replace(/ /g, '%20'); // encode spaces
@@ -53,8 +58,8 @@
                     .split('/')
                     .find((o, i, arr) => i > 1 && arr[i - 1] === 'performers');
 
-                const performerName =
-                    document.querySelector('.performer-head h2')?.innerText || '';
+                const rawName = document.querySelector('.performer-head h2')?.innerText || '';
+                const performerName = cleanPerformerName(rawName);
 
                 const response = await getPerformerMarkersCount(performerId);
                 const markersCount = response?.data?.findSceneMarkers?.count || 0;
