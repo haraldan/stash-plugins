@@ -45,7 +45,23 @@
                 const markersCount = (await getPerformerMarkersCount(performerId)).data.findSceneMarkers.count;
                 document.querySelector(`#${markersTabId} span`).innerHTML = markersCount;
                 const performerName = document.querySelector('.performer-head h2').innerText;
-                const markersUrl = `${window.location.origin}/scenes/markers?c=${JSON.stringify({"type":"performers","value":[{"id":performerId,"label":performerName}],"modifier":"INCLUDES_ALL"})}`
+                
+                // Build the filter parameter as a modern JSON object
+                const criterion = {
+                    type: "performers",
+                    modifier: "INCLUDES_ALL",
+                    value: {
+                        items: [{ id: performerId, label: performerName }],
+                        excluded: []
+                    }
+                };
+                
+                // Convert JSON to Base64, safely handling UTF-8 characters
+                const base64Filter = btoa(unescape(encodeURIComponent(JSON.stringify(criterion))));
+                
+                // Construct the updated URL
+                const markersUrl = `${window.location.origin}/scenes/markers?c=${encodeURIComponent(base64Filter)}&sortby=created_at&sortdir=desc&disp=2`;
+                
                 markerTab.href = markersUrl;
             }
         });
