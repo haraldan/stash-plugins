@@ -29,6 +29,12 @@
 
     const markersTabId = 'performer-details-tab-markers';
 
+    // Converts performer into the tuple-style string used in working URLs
+    function tupleEncodePerformer(performerId, performerName) {
+        const items = `(("id":"${performerId}","label":"${performerName}"))`;
+        return `(type:"performers",modifier:"INCLUDES_ALL",value:(items:${items},excluded:()))`;
+    }
+
     function performerPageHandler() {
         waitForElementClass("nav-tabs", async function (className, el) {
             const navTabs = el.item(0);
@@ -47,48 +53,19 @@
                     .split('/')
                     .find((o, i, arr) => i > 1 && arr[i - 1] === 'performers');
 
+                const performerName = document.querySelector('.performer-head h2')?.innerText || '';
+
                 const response = await getPerformerMarkersCount(performerId);
                 const markersCount = response?.data?.findSceneMarkers?.count || 0;
                 document.querySelector(`#${markersTabId} span`).innerHTML = markersCount;
 
-                const performerName =
-                    document.querySelector('.performer-head h2')?.innerText || '';
+                // Create the tuple-style filter string
+                const tupleFilter = tupleEncodePerformer(performerId, performerName);
+                const encodedFilter = encodeURIComponent(tupleFilter);
 
-                // On click, navigate to markers and simulate UI interaction
-                markerTab.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    window.location.href = `${window.location.origin}/scenes/markers`;
+                const markersUrl = `${window.location.origin}/scenes/markers?c=${encodedFilter}&sortby=created_at&sortdir=desc`;
 
-                    // Poll until the filter panel and performer list are ready
-                    const interval = setInterval(() => {
-                        const filterButton = document.querySelector(
-                            '.scene-markers-filters-toggle'
-                        );
-                        const performerCheckbox = document.querySelector(
-                            `.scene-marker-performers input[data-id="${performerId}"]`
-                        );
-
-                        if (filterButton && performerCheckbox) {
-                            clearInterval(interval);
-
-                            // Open filter panel
-                            if (!filterButton.classList.contains('active')) {
-                                filterButton.click();
-                            }
-
-                            // Check the performer
-                            if (!performerCheckbox.checked) {
-                                performerCheckbox.click();
-                            }
-
-                            // Apply the filter
-                            const applyButton = document.querySelector(
-                                '.scene-markers-filters-footer .btn-primary'
-                            );
-                            if (applyButton) applyButton.click();
-                        }
-                    }, 250);
-                });
+                markerTab.href = markersUrl;
             }
         });
     }
