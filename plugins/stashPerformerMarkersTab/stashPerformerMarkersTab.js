@@ -29,6 +29,14 @@
 
     const markersTabId = 'performer-details-tab-markers';
 
+    function toBase64Utf8(str) {
+        return btoa(
+            encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) =>
+                String.fromCharCode('0x' + p1)
+            )
+        );
+    }
+
     function performerPageHandler() {
         waitForElementClass("nav-tabs", async function (className, el) {
             const navTabs = el.item(0);
@@ -52,9 +60,10 @@
 
                 document.querySelector(`#${markersTabId} span`).innerHTML = markersCount;
 
-                const performerName = document.querySelector('.performer-head h2')?.innerText || '';
+                const performerName =
+                    document.querySelector('.performer-head h2')?.innerText || '';
 
-                // Correct (legacy) filter structure for Stash v0.30.1
+                // Legacy filter structure required by Stash v0.30.1
                 const filterObject = {
                     scene_marker_filter: {
                         performers: {
@@ -66,10 +75,10 @@
                 };
 
                 const jsonStr = JSON.stringify(filterObject);
-                const base64Filter = btoa(jsonStr);
+                const base64Filter = toBase64Utf8(jsonStr);
 
                 const markersUrl =
-                    `${window.location.origin}/scenes/markers?c=${base64Filter}&sortby=created_at&sortdir=desc`;
+                    `${window.location.origin}/scenes/markers?c=${encodeURIComponent(base64Filter)}&sortby=created_at&sortdir=desc`;
 
                 markerTab.href = markersUrl;
             }
