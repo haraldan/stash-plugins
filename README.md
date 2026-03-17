@@ -2,7 +2,7 @@
 
 ## Installation
 
-https://7djx1qp.github.io/stash-plugins/main/index.yml
+https://haraldan.github.io/stash-plugins/main/index.yml
 
 ## Plugin List
 
