@@ -39,23 +39,25 @@
                 const performerId = window.location.pathname.split('/').find((o, i, arr) => i > 1 && arr[i - 1] == 'performers');
                 
                 const response = await getPerformerMarkersCount(performerId);
-                const markersCount = response.data.findSceneMarkers.count;
+                const markersCount = response.data.findSceneMarkers.count || 0;
                 document.querySelector(`#${markersTabId} span`).innerHTML = markersCount;
 
                 const performerName = document.querySelector('.performer-head h2').innerText;
 
-                // This specific nesting is required for the Markers page
+                // NEW STRUCTURE: Stash Markers page now prefers a flat criteria array
                 const filterObject = {
-                    "scene_marker_filter": {
-                        "performers": {
-                            "value": [performerId],
-                            "items": [{ "id": performerId, "label": performerName }],
-                            "modifier": "INCLUDES_ALL"
+                    "criteria": [
+                        {
+                            "type": "performers",
+                            "modifier": "INCLUDES_ALL",
+                            "value": {
+                                "items": [{ "id": performerId, "label": performerName }],
+                                "excluded": []
+                            }
                         }
-                    }
+                    ]
                 };
 
-                // Correct encoding for Stash's Base64 expectations
                 const jsonStr = JSON.stringify(filterObject);
                 const base64Filter = btoa(unescape(encodeURIComponent(jsonStr)));
 
