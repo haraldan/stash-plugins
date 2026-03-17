@@ -51,30 +51,43 @@
                 const markersCount = response?.data?.findSceneMarkers?.count || 0;
                 document.querySelector(`#${markersTabId} span`).innerHTML = markersCount;
 
-                // When clicking the tab, navigate to markers page and inject filter
+                const performerName =
+                    document.querySelector('.performer-head h2')?.innerText || '';
+
+                // On click, navigate to markers and simulate UI interaction
                 markerTab.addEventListener('click', async (e) => {
                     e.preventDefault();
                     window.location.href = `${window.location.origin}/scenes/markers`;
 
-                    // Wait for markers page to load
-                    const observer = new MutationObserver((mutations, obs) => {
-                        const store = window.stash?.store;
-                        if (store && document.querySelector('.scenes-markers-page')) {
-                            // Dispatch the performer filter
-                            store.dispatch({
-                                type: "SET_MARKER_FILTER",
-                                payload: {
-                                    performers: {
-                                        value: [performerId],
-                                        modifier: "INCLUDES_ALL"
-                                    }
-                                }
-                            });
-                            obs.disconnect();
-                        }
-                    });
+                    // Poll until the filter panel and performer list are ready
+                    const interval = setInterval(() => {
+                        const filterButton = document.querySelector(
+                            '.scene-markers-filters-toggle'
+                        );
+                        const performerCheckbox = document.querySelector(
+                            `.scene-marker-performers input[data-id="${performerId}"]`
+                        );
 
-                    observer.observe(document.body, { childList: true, subtree: true });
+                        if (filterButton && performerCheckbox) {
+                            clearInterval(interval);
+
+                            // Open filter panel
+                            if (!filterButton.classList.contains('active')) {
+                                filterButton.click();
+                            }
+
+                            // Check the performer
+                            if (!performerCheckbox.checked) {
+                                performerCheckbox.click();
+                            }
+
+                            // Apply the filter
+                            const applyButton = document.querySelector(
+                                '.scene-markers-filters-footer .btn-primary'
+                            );
+                            if (applyButton) applyButton.click();
+                        }
+                    }, 250);
                 });
             }
         });
