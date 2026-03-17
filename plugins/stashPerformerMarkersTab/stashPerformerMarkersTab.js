@@ -9,21 +9,21 @@
 
     async function getPerformerMarkersCount(performerId) {
         const reqData = {
-            "operationName": "FindSceneMarkers",
-            "variables": {
-                "scene_marker_filter": {
-                    "performers": {
-                        "value": [performerId],
-                        "modifier": "INCLUDES_ALL"
+            operationName: "FindSceneMarkers",
+            variables: {
+                scene_marker_filter: {
+                    performers: {
+                        value: [performerId],
+                        modifier: "INCLUDES_ALL"
                     }
                 }
             },
-            "query": `query FindSceneMarkers($filter: FindFilterType, $scene_marker_filter: SceneMarkerFilterType) {
+            query: `query FindSceneMarkers($filter: FindFilterType, $scene_marker_filter: SceneMarkerFilterType) {
                 findSceneMarkers(filter: $filter, scene_marker_filter: $scene_marker_filter) {
                     count
                 }
             }`
-        }
+        };
         return await stash.callGQL(reqData);
     }
 
@@ -32,37 +32,45 @@
     function performerPageHandler() {
         waitForElementClass("nav-tabs", async function (className, el) {
             const navTabs = el.item(0);
+
             if (!document.getElementById(markersTabId)) {
-                const markerTab = createElementFromHTML(`<a id="${markersTabId}" href="#" role="tab" class="nav-item nav-link">Markers<span class="left-spacing badge badge-pill badge-secondary">0</span></a>`)
+                const markerTab = createElementFromHTML(
+                    `<a id="${markersTabId}" href="#" role="tab" class="nav-item nav-link">
+                        Markers
+                        <span class="left-spacing badge badge-pill badge-secondary">0</span>
+                    </a>`
+                );
+
                 navTabs.appendChild(markerTab);
 
-                const performerId = window.location.pathname.split('/').find((o, i, arr) => i > 1 && arr[i - 1] == 'performers');
-                
+                const performerId = window.location.pathname
+                    .split('/')
+                    .find((o, i, arr) => i > 1 && arr[i - 1] === 'performers');
+
                 const response = await getPerformerMarkersCount(performerId);
-                const markersCount = response.data.findSceneMarkers.count || 0;
+                const markersCount = response?.data?.findSceneMarkers?.count || 0;
+
                 document.querySelector(`#${markersTabId} span`).innerHTML = markersCount;
 
-                const performerName = document.querySelector('.performer-head h2').innerText;
+                const performerName = document.querySelector('.performer-head h2')?.innerText || '';
 
-                // NEW STRUCTURE: Stash Markers page now prefers a flat criteria array
+                // Correct (legacy) filter structure for Stash v0.30.1
                 const filterObject = {
-                    "criteria": [
-                        {
-                            "type": "performers",
-                            "modifier": "INCLUDES_ALL",
-                            "value": {
-                                "items": [{ "id": performerId, "label": performerName }],
-                                "excluded": []
-                            }
+                    scene_marker_filter: {
+                        performers: {
+                            value: [performerId],
+                            items: [{ id: performerId, label: performerName }],
+                            modifier: "INCLUDES_ALL"
                         }
-                    ]
+                    }
                 };
 
                 const jsonStr = JSON.stringify(filterObject);
-                const base64Filter = btoa(unescape(encodeURIComponent(jsonStr)));
+                const base64Filter = btoa(jsonStr);
 
-                const markersUrl = `${window.location.origin}/scenes/markers?c=${encodeURIComponent(base64Filter)}&sortby=created_at&sortdir=desc`;
-                
+                const markersUrl =
+                    `${window.location.origin}/scenes/markers?c=${base64Filter}&sortby=created_at&sortdir=desc`;
+
                 markerTab.href = markersUrl;
             }
         });
