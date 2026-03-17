@@ -111,7 +111,7 @@ With performer details, urls, paths, and notes:
   "custom": {
     "notes": ["Note 1","Note 2"],
     "paths": ["C:\Videos\Alice","C:\Videos\Alice 2"],
-    "urls": ["https://github.com/stashapp/stash","https://github.com/7dJx1qP/stash-plugins"]
+    "urls": ["https://github.com/stashapp/stash","https://github.com/haraldan/stash-plugins"]
   },
   "details": "Performer details go here"
 }

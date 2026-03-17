@@ -2,7 +2,7 @@ name: Stash Markers Autoscroll
 # requires: stashUserscriptLibrary7dJx1qP
 description: Automatically scrolls markers page
 version: 0.1.2
-url: https://github.com/7dJx1qP/stash-plugins#stash-markers-autoscroll
+url: https://github.com/haraldan/stash-plugins#stash-markers-autoscroll
 ui:
   requires: 
   - stashUserscriptLibrary7dJx1qP
