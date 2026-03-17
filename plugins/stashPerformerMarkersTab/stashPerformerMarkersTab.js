@@ -31,8 +31,8 @@
 
     // Converts performer into the tuple-style string used in working URLs
     function tupleEncodePerformer(performerId, performerName) {
-        const items = `(("id":"${performerId}","label":"${performerName}"))`;
-        return `(type:"performers",modifier:"INCLUDES_ALL",value:(items:${items},excluded:()))`;
+        // Properly quote all field names
+        return `(%22type%22:%22performers%22,%22modifier%22:%22INCLUDES_ALL%22,%22value%22:(%22items%22:%5B(%22id%22:%22${performerId}%22,%22label%22:%22${encodeURIComponent(performerName)}%22)%5D,%22excluded%22:%5B%5D))`;
     }
 
     function performerPageHandler() {
