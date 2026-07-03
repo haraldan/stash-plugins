@@ -1,0 +1,13 @@
+{
+  "name": "stash-scenes-and-markers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stash UI plugin: unified scenes + scene markers grid",
+  "scripts": {
+    "build": "esbuild src/main.tsx --bundle --format=iife --outfile=stashScenesAndMarkers.js --jsx=transform --jsx-factory=React.createElement --jsx-fragment=React.Fragment",
+    "watch": "npm run build -- --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}
