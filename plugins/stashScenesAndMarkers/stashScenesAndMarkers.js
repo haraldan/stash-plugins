@@ -356,15 +356,24 @@
       },
       fetchPolicy: "cache-and-network"
     });
-    const scenes = scenesResult?.data?.findScenes?.scenes ?? [];
-    const sceneCount = scenesResult?.data?.findScenes?.count ?? 0;
-    const markers = markersResult?.data?.findSceneMarkers?.scene_markers ?? [];
-    const markerCount = markersResult?.data?.findSceneMarkers?.count ?? 0;
+    const sceneData = scenesResult?.data ?? scenesResult?.previousData;
+    const markerData = markersResult?.data ?? markersResult?.previousData;
+    const scenes = sceneData?.findScenes?.scenes ?? [];
+    const sceneCount = sceneData?.findScenes?.count ?? 0;
+    const markers = markerData?.findSceneMarkers?.scene_markers ?? [];
+    const markerCount = markerData?.findSceneMarkers?.count ?? 0;
     React.useEffect(() => {
-      setCounts(
-        (prev) => prev.s === sceneCount && prev.m === markerCount ? prev : { s: sceneCount, m: markerCount }
-      );
-    }, [sceneCount, markerCount]);
+      if (scenesResult?.loading || markersResult?.loading) return;
+      if (!scenesResult?.data || !markersResult?.data) return;
+      const s = scenesResult.data.findScenes?.count ?? 0;
+      const m = markersResult.data.findSceneMarkers?.count ?? 0;
+      setCounts((prev) => prev.s === s && prev.m === m ? prev : { s, m });
+    }, [
+      scenesResult?.data,
+      markersResult?.data,
+      scenesResult?.loading,
+      markersResult?.loading
+    ]);
     const items = React.useMemo(() => {
       const all = [
         ...scenes.map((s) => ({ _kind: "scene", data: s })),
@@ -378,9 +387,6 @@
     const totalPages = Math.max(1, scenePages, markerPages);
     const loading = scenesResult?.loading || markersResult?.loading;
     const error = scenesResult?.error || markersResult?.error;
-    React.useEffect(() => {
-      if (page > totalPages - 1) setPage(totalPages - 1);
-    }, [totalPages, page]);
     React.useEffect(() => {
       if (page > totalPages - 1) setPage(totalPages - 1);
     }, [totalPages, page]);

@@ -499,19 +499,31 @@ function CombinedGrid() {
     fetchPolicy: "cache-and-network",
   });
 
-  const scenes = scenesResult?.data?.findScenes?.scenes ?? [];
-  const sceneCount = scenesResult?.data?.findScenes?.count ?? 0;
-  const markers = markersResult?.data?.findSceneMarkers?.scene_markers ?? [];
-  const markerCount = markersResult?.data?.findSceneMarkers?.count ?? 0;
+  // Use previousData during in-flight refetches so the grid and counts don't
+  // blank out when the page / per_page variables change.
+  const sceneData = scenesResult?.data ?? scenesResult?.previousData;
+  const markerData = markersResult?.data ?? markersResult?.previousData;
+  const scenes = sceneData?.findScenes?.scenes ?? [];
+  const sceneCount = sceneData?.findScenes?.count ?? 0;
+  const markers = markerData?.findSceneMarkers?.scene_markers ?? [];
+  const markerCount = markerData?.findSceneMarkers?.count ?? 0;
 
-  // Feed real counts back (lagged) so the next render splits pages by ratio.
+  // Feed real counts back so the next render splits pages by ratio. Only commit
+  // once BOTH queries have settled with data — mid-refetch Apollo reports
+  // data:undefined for the new variables, and reading that as 0 would flip the
+  // split back to 50/50, change the variables again, and loop forever.
   React.useEffect(() => {
-    setCounts((prev) =>
-      prev.s === sceneCount && prev.m === markerCount
-        ? prev
-        : { s: sceneCount, m: markerCount }
-    );
-  }, [sceneCount, markerCount]);
+    if (scenesResult?.loading || markersResult?.loading) return;
+    if (!scenesResult?.data || !markersResult?.data) return;
+    const s = scenesResult.data.findScenes?.count ?? 0;
+    const m = markersResult.data.findSceneMarkers?.count ?? 0;
+    setCounts((prev) => (prev.s === s && prev.m === m ? prev : { s, m }));
+  }, [
+    scenesResult?.data,
+    markersResult?.data,
+    scenesResult?.loading,
+    markersResult?.loading,
+  ]);
 
   // Interleave this page's scenes and markers into ONE randomized order (not
   // scene-marker alternation) via a seed-stable hash, so the mix looks random
@@ -533,11 +545,6 @@ function CombinedGrid() {
   const totalPages = Math.max(1, scenePages, markerPages);
   const loading = scenesResult?.loading || markersResult?.loading;
   const error = scenesResult?.error || markersResult?.error;
-
-  // Keep the page index in range if the total shrinks (e.g. after a filter).
-  React.useEffect(() => {
-    if (page > totalPages - 1) setPage(totalPages - 1);
-  }, [totalPages, page]);
 
   // Keep the page index in range if the total shrinks (e.g. after a filter).
   React.useEffect(() => {
