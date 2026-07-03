@@ -29,10 +29,10 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500];
 // GraphQL
 // ---------------------------------------------------------------------------
 
-// Markers query. We fetch ALL matching markers in one shot (per_page: -1) and
-// sort/merge them client-side, because the server cannot sort markers by their
-// parent scene's date. Fields mirror v0.31.1's SceneMarkerData fragment plus
-// the parent scene's date/created_at needed for client-side sorting.
+// Markers query. Paged server-side (per_page is set per request) and sorted by
+// the same key as scenes, so the two streams can be merged/interleaved without
+// ever fetching the whole marker set. Fields mirror v0.31.1's SceneMarkerData
+// fragment (the scene backref is what SceneMarkerCard renders and links from).
 const FIND_ALL_MARKERS = gql && gql`
   query SnMFindAllMarkers(
     $filter: FindFilterType
@@ -111,19 +111,36 @@ function markerTitle(marker: any): string {
   return marker.title || marker.primary_tag?.name || "";
 }
 
-// Extract the sort key from a unified item ("scene" | "marker").
+// Extract the sort key from a unified item ("scene" | "marker"). Only used for
+// the comparable sorts (created_at / title); "random" is handled separately by
+// round-robin interleaving so it never calls this.
 function keyOf(item: any, sortKey: string): string | null {
   if (item._kind === "scene") {
     const s = item.data;
     if (sortKey === "title") return (s.title || "").toLowerCase();
-    if (sortKey === "created_at") return s.created_at ?? null;
-    return s.date ?? null; // "date"
+    return s.created_at ?? null; // "created_at"
   }
-  // marker: fall back to the parent scene for date-like keys
   const m = item.data;
   if (sortKey === "title") return markerTitle(m).toLowerCase();
-  if (sortKey === "created_at") return m.created_at ?? null;
-  return m.scene?.date ?? m.scene?.created_at ?? null; // "date"
+  return m.created_at ?? null; // "created_at" — the marker's own add time
+}
+
+// Server sort string. Random uses a stable seed so pagination is consistent
+// across "load more" (Stash's random_<seed> convention).
+function sortParam(sort: string, seed: number): string {
+  return sort === "random" ? `random_${seed}` : sort;
+}
+
+// Interleave two already-ordered streams. Append-stable: growing either input
+// only extends the tail, so "load more" never reorders what's on screen.
+function roundRobin(a: any[], b: any[]): any[] {
+  const out: any[] = [];
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (i < a.length) out.push(a[i]);
+    if (i < b.length) out.push(b[i]);
+  }
+  return out;
 }
 
 // Comparator producing the requested order. Nulls always sort last regardless
@@ -198,15 +215,15 @@ function ItemCard({ item }: any) {
 // ---------------------------------------------------------------------------
 
 function FilterBar(props: any) {
-  const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize } = props;
+  const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize, onShuffle } = props;
 
   // Load all tags once for the selector (personal-library scale).
   const tagsResult = PluginApi.GQL?.useFindTagsQuery
     ? PluginApi.GQL.useFindTagsQuery({
-        variables: { filter: { per_page: -1, sort: "name", direction: "ASC" } },
+        variables: { filter: { per_page: 1000, sort: "name", direction: "ASC" } },
       })
     : useQuery(FIND_ALL_TAGS, {
-        variables: { filter: { per_page: -1, sort: "name", direction: "ASC" } },
+        variables: { filter: { per_page: 1000, sort: "name", direction: "ASC" } },
       });
 
   const tagOptions = React.useMemo(() => {
@@ -250,19 +267,30 @@ function FilterBar(props: any) {
         value={sort}
         onChange={(e: any) => setSort(e.target.value)}
       >
-        <option value="date">Date</option>
-        <option value="created_at">Created</option>
+        <option value="random">Random</option>
+        <option value="created_at">Date added</option>
         <option value="title">Title</option>
       </Form.Control>
 
-      <Button
-        variant="secondary"
-        className="snm-dir"
-        onClick={() => setDirection(direction === "ASC" ? "DESC" : "ASC")}
-        title="Toggle sort direction"
-      >
-        {direction === "ASC" ? "↑" : "↓"}
-      </Button>
+      {sort === "random" ? (
+        <Button
+          variant="secondary"
+          className="snm-dir"
+          onClick={onShuffle}
+          title="Reshuffle"
+        >
+          ⟳
+        </Button>
+      ) : (
+        <Button
+          variant="secondary"
+          className="snm-dir"
+          onClick={() => setDirection(direction === "ASC" ? "DESC" : "ASC")}
+          title="Toggle sort direction"
+        >
+          {direction === "ASC" ? "↑" : "↓"}
+        </Button>
+      )}
 
       <Form.Control
         as="select"
@@ -297,14 +325,22 @@ function FilterBar(props: any) {
 function CombinedGrid() {
   const [search, setSearch] = React.useState("");
   const [tagIds, setTagIds] = React.useState<string[]>([]);
-  const [sort, setSort] = React.useState("date");
+  const [sort, setSort] = React.useState("random");
   const [direction, setDirection] = React.useState<"ASC" | "DESC">("DESC");
   const [dedup, setDedup] = React.useState(true);
   const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
   // How many merged items to display. Starts at one page and grows on demand.
   const [limit, setLimit] = React.useState(DEFAULT_PAGE_SIZE);
+  // Stable random seed so "random" paginates consistently. New order only on
+  // mount or an explicit reshuffle.
+  const [seed, setSeed] = React.useState(() => Math.floor(Math.random() * 1e9));
 
   const q = useDebounced(search, 300);
+
+  const reshuffle = React.useCallback(() => {
+    setSeed(Math.floor(Math.random() * 1e9));
+    setLimit(pageSize);
+  }, [pageSize]);
 
   // Reset the display window whenever the query shape or page size changes.
   React.useEffect(() => {
@@ -323,7 +359,7 @@ function CombinedGrid() {
         q: q || undefined,
         page: 1,
         per_page: limit,
-        sort,
+        sort: sortParam(sort, seed),
         direction,
       },
       scene_filter: {
@@ -334,10 +370,17 @@ function CombinedGrid() {
     fetchPolicy: "cache-and-network",
   });
 
-  // Markers: fetch all matching once.
+  // Markers: paged server-side with the same sort as scenes (never fetch all —
+  // that hangs on large libraries).
   const markersResult = useQuery(FIND_ALL_MARKERS, {
     variables: {
-      filter: { q: q || undefined, per_page: -1, sort: "created_at", direction: "DESC" },
+      filter: {
+        q: q || undefined,
+        page: 1,
+        per_page: limit,
+        sort: sortParam(sort, seed),
+        direction,
+      },
       scene_marker_filter: tagCriterion ? { tags: tagCriterion } : {},
     },
     fetchPolicy: "cache-and-network",
@@ -353,21 +396,25 @@ function CombinedGrid() {
     [sort, direction]
   );
 
-  // All loaded items, globally sorted. We request `limit` scenes and all
-  // markers, so the first `limit` of this sorted list are guaranteed to be the
-  // true first `limit` items (any unloaded scene sorts after every loaded one,
-  // and removing markers can only lower a scene's rank — so every item that
-  // belongs in the top `limit` is already loaded).
+  // Both streams are paged to `limit` and server-sorted by the same key. For
+  // the comparable sorts, merging the two windows and slicing to `limit` yields
+  // the exact true top-`limit` (any item belonging there is within its own
+  // stream's top `limit`, so it's loaded). For "random", the two server-random
+  // windows are interleaved round-robin — append-stable across "load more".
   const merged = React.useMemo(() => {
     const sceneItems = scenes.map((s: any) => ({ _kind: "scene", data: s }));
     const markerItems = markers.map((m: any) => ({ _kind: "marker", data: m }));
+    if (sort === "random") return roundRobin(sceneItems, markerItems);
     return [...sceneItems, ...markerItems].sort(comparator);
-  }, [scenes, markers, comparator]);
+  }, [scenes, markers, sort, comparator]);
 
   const items = React.useMemo(() => merged.slice(0, limit), [merged, limit]);
 
   const totalCount = sceneCount + markerCount;
-  const hasMore = merged.length > limit || scenes.length < sceneCount;
+  const hasMore =
+    merged.length > limit ||
+    scenes.length < sceneCount ||
+    markers.length < markerCount;
   const loading = scenesResult?.loading || markersResult?.loading;
   const error = scenesResult?.error || markersResult?.error;
 
@@ -403,6 +450,7 @@ function CombinedGrid() {
         setDedup={setDedup}
         pageSize={pageSize}
         setPageSize={setPageSize}
+        onShuffle={reshuffle}
       />
 
       <div className="snm-counts">

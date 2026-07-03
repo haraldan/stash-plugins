@@ -85,13 +85,23 @@
     if (item._kind === "scene") {
       const s = item.data;
       if (sortKey === "title") return (s.title || "").toLowerCase();
-      if (sortKey === "created_at") return s.created_at ?? null;
-      return s.date ?? null;
+      return s.created_at ?? null;
     }
     const m = item.data;
     if (sortKey === "title") return markerTitle(m).toLowerCase();
-    if (sortKey === "created_at") return m.created_at ?? null;
-    return m.scene?.date ?? m.scene?.created_at ?? null;
+    return m.created_at ?? null;
+  }
+  function sortParam(sort, seed) {
+    return sort === "random" ? `random_${seed}` : sort;
+  }
+  function roundRobin(a, b) {
+    const out = [];
+    const n = Math.max(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      if (i < a.length) out.push(a[i]);
+      if (i < b.length) out.push(b[i]);
+    }
+    return out;
   }
   function makeComparator(sortKey, direction) {
     const mult = direction === "ASC" ? 1 : -1;
@@ -139,11 +149,11 @@
     );
   }
   function FilterBar(props) {
-    const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize } = props;
+    const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize, onShuffle } = props;
     const tagsResult = PluginApi.GQL?.useFindTagsQuery ? PluginApi.GQL.useFindTagsQuery({
-      variables: { filter: { per_page: -1, sort: "name", direction: "ASC" } }
+      variables: { filter: { per_page: 1e3, sort: "name", direction: "ASC" } }
     }) : useQuery(FIND_ALL_TAGS, {
-      variables: { filter: { per_page: -1, sort: "name", direction: "ASC" } }
+      variables: { filter: { per_page: 1e3, sort: "name", direction: "ASC" } }
     });
     const tagOptions = React.useMemo(() => {
       const tags = tagsResult?.data?.findTags?.tags ?? [];
@@ -180,10 +190,19 @@
         value: sort,
         onChange: (e) => setSort(e.target.value)
       },
-      /* @__PURE__ */ React.createElement("option", { value: "date" }, "Date"),
-      /* @__PURE__ */ React.createElement("option", { value: "created_at" }, "Created"),
+      /* @__PURE__ */ React.createElement("option", { value: "random" }, "Random"),
+      /* @__PURE__ */ React.createElement("option", { value: "created_at" }, "Date added"),
       /* @__PURE__ */ React.createElement("option", { value: "title" }, "Title")
-    ), /* @__PURE__ */ React.createElement(
+    ), sort === "random" ? /* @__PURE__ */ React.createElement(
+      Button,
+      {
+        variant: "secondary",
+        className: "snm-dir",
+        onClick: onShuffle,
+        title: "Reshuffle"
+      },
+      "\u27F3"
+    ) : /* @__PURE__ */ React.createElement(
       Button,
       {
         variant: "secondary",
@@ -217,12 +236,17 @@
   function CombinedGrid() {
     const [search, setSearch] = React.useState("");
     const [tagIds, setTagIds] = React.useState([]);
-    const [sort, setSort] = React.useState("date");
+    const [sort, setSort] = React.useState("random");
     const [direction, setDirection] = React.useState("DESC");
     const [dedup, setDedup] = React.useState(true);
     const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
     const [limit, setLimit] = React.useState(DEFAULT_PAGE_SIZE);
+    const [seed, setSeed] = React.useState(() => Math.floor(Math.random() * 1e9));
     const q = useDebounced(search, 300);
+    const reshuffle = React.useCallback(() => {
+      setSeed(Math.floor(Math.random() * 1e9));
+      setLimit(pageSize);
+    }, [pageSize]);
     React.useEffect(() => {
       setLimit(pageSize);
     }, [q, tagIds, sort, direction, dedup, pageSize]);
@@ -233,7 +257,7 @@
           q: q || void 0,
           page: 1,
           per_page: limit,
-          sort,
+          sort: sortParam(sort, seed),
           direction
         },
         scene_filter: {
@@ -245,7 +269,13 @@
     });
     const markersResult = useQuery(FIND_ALL_MARKERS, {
       variables: {
-        filter: { q: q || void 0, per_page: -1, sort: "created_at", direction: "DESC" },
+        filter: {
+          q: q || void 0,
+          page: 1,
+          per_page: limit,
+          sort: sortParam(sort, seed),
+          direction
+        },
         scene_marker_filter: tagCriterion ? { tags: tagCriterion } : {}
       },
       fetchPolicy: "cache-and-network"
@@ -261,11 +291,12 @@
     const merged = React.useMemo(() => {
       const sceneItems = scenes.map((s) => ({ _kind: "scene", data: s }));
       const markerItems = markers.map((m) => ({ _kind: "marker", data: m }));
+      if (sort === "random") return roundRobin(sceneItems, markerItems);
       return [...sceneItems, ...markerItems].sort(comparator);
-    }, [scenes, markers, comparator]);
+    }, [scenes, markers, sort, comparator]);
     const items = React.useMemo(() => merged.slice(0, limit), [merged, limit]);
     const totalCount = sceneCount + markerCount;
-    const hasMore = merged.length > limit || scenes.length < sceneCount;
+    const hasMore = merged.length > limit || scenes.length < sceneCount || markers.length < markerCount;
     const loading = scenesResult?.loading || markersResult?.loading;
     const error = scenesResult?.error || markersResult?.error;
     const sentinelRef = React.useRef(null);
@@ -295,7 +326,8 @@
         dedup,
         setDedup,
         pageSize,
-        setPageSize
+        setPageSize,
+        onShuffle: reshuffle
       }
     ), /* @__PURE__ */ React.createElement("div", { className: "snm-counts" }, "Showing ", items.length, " of ", totalCount, " items \xB7 ", sceneCount, " scenes \xB7 ", markerCount, " markers"), error ? /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "Error loading: ", String(error.message || error)) : null, /* @__PURE__ */ React.createElement("div", { className: "row justify-content-center snm-grid" }, items.map((item) => /* @__PURE__ */ React.createElement(ItemCard, { key: `${item._kind}-${item.data.id}`, item }))), loading ? /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" })) : null, hasMore ? /* @__PURE__ */ React.createElement("div", { ref: sentinelRef, className: "snm-sentinel" }, /* @__PURE__ */ React.createElement(Button, { variant: "secondary", onClick: () => setLimit((l) => l + pageSize) }, "Load more")) : null);
   }
