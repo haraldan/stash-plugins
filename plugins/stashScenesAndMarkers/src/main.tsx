@@ -113,23 +113,9 @@ function markerTitle(marker: any): string {
   return marker.title || marker.primary_tag?.name || "";
 }
 
-// Extract the sort key from a unified item ("scene" | "marker"). Only used for
-// the comparable sorts (created_at / title); "random" is handled separately by
-// round-robin interleaving so it never calls this.
-function keyOf(item: any, sortKey: string): string | null {
-  if (item._kind === "scene") {
-    const s = item.data;
-    if (sortKey === "title") return (s.title || "").toLowerCase();
-    return s.created_at ?? null; // "created_at"
-  }
-  const m = item.data;
-  if (sortKey === "title") return markerTitle(m).toLowerCase();
-  return m.created_at ?? null; // "created_at" — the marker's own add time
-}
-
-// Deterministic 32-bit hash (FNV-1a). Used to shuffle the scene+marker mix in a
-// way that's stable for a given seed, so random order doesn't reshuffle on
-// re-render but does interleave the two kinds (rather than strict alternation).
+// Deterministic 32-bit hash (FNV-1a). Shuffles the scene+marker mix in a way
+// that's stable for a given seed, so the random order doesn't change on
+// re-render but does interleave the two kinds (not strict alternation).
 function hash32(str: string): number {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < str.length; i++) {
@@ -137,22 +123,6 @@ function hash32(str: string): number {
     h = Math.imul(h, 16777619) >>> 0;
   }
   return h >>> 0;
-}
-
-// Comparator producing the requested order. Nulls always sort last regardless
-// of direction (mirrors Stash, where undated content trails).
-function makeComparator(sortKey: string, direction: "ASC" | "DESC") {
-  const mult = direction === "ASC" ? 1 : -1;
-  return (a: any, b: any) => {
-    const ka = keyOf(a, sortKey);
-    const kb = keyOf(b, sortKey);
-    if (ka == null && kb == null) return 0;
-    if (ka == null) return 1;
-    if (kb == null) return -1;
-    if (ka < kb) return -1 * mult;
-    if (ka > kb) return 1 * mult;
-    return 0;
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +228,7 @@ function ItemCard({ item, width, zoomIndex }: any) {
 // ---------------------------------------------------------------------------
 
 function FilterBar(props: any) {
-  const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds } = props;
+  const { search, setSearch, tagIds, setTagIds, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds } = props;
 
   // Load all tags once for the selector (personal-library scale).
   const tagsResult = PluginApi.GQL?.useFindTagsQuery
@@ -328,36 +298,14 @@ function FilterBar(props: any) {
         ) : null}
       </div>
 
-      <Form.Control
-        as="select"
-        className="snm-sort"
-        value={sort}
-        onChange={(e: any) => setSort(e.target.value)}
+      <Button
+        variant="secondary"
+        className="snm-shuffle"
+        onClick={onShuffle}
+        title="Reshuffle"
       >
-        <option value="random">Random</option>
-        <option value="created_at">Date added</option>
-        <option value="title">Title</option>
-      </Form.Control>
-
-      {sort === "random" ? (
-        <Button
-          variant="secondary"
-          className="snm-dir"
-          onClick={onShuffle}
-          title="Reshuffle"
-        >
-          ⟳
-        </Button>
-      ) : (
-        <Button
-          variant="secondary"
-          className="snm-dir"
-          onClick={() => setDirection(direction === "ASC" ? "DESC" : "ASC")}
-          title="Toggle sort direction"
-        >
-          {direction === "ASC" ? "↑" : "↓"}
-        </Button>
-      )}
+        ⟳ Shuffle
+      </Button>
 
       <Form.Control
         as="select"
@@ -430,14 +378,15 @@ function Pager({ page, totalPages, onPage }: any) {
 function CombinedGrid() {
   const [search, setSearch] = React.useState("");
   const [tagIds, setTagIds] = React.useState<string[]>([]);
-  const [sort, setSort] = React.useState("random");
-  const [direction, setDirection] = React.useState<"ASC" | "DESC">("DESC");
   const [dedup, setDedup] = React.useState(true);
   const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
   const [page, setPage] = React.useState(0);
   const [excludeTagIds, setExcludeTagIds] = React.useState<string[]>([]);
-  // Stable random seed so random ordering is consistent within a browse
-  // session; new order only on mount or an explicit reshuffle.
+  // Server-side counts (lagged one render) used only to split each combined
+  // page proportionally between the two streams.
+  const [counts, setCounts] = React.useState({ s: 0, m: 0 });
+  // Stable random seed so the random order is consistent within a browse
+  // session; a new order only on mount or an explicit reshuffle.
   const [seed, setSeed] = React.useState(() => Math.floor(Math.random() * 1e9));
 
   const q = useDebounced(search, 300);
@@ -462,7 +411,7 @@ function CombinedGrid() {
   // Return to page 1 whenever the query shape or page size changes.
   React.useEffect(() => {
     setPage(0);
-  }, [q, tagIds, excludeTagIds, sort, direction, dedup, pageSize, seed]);
+  }, [q, tagIds, excludeTagIds, dedup, pageSize, seed]);
 
   // Default: exclude the "VR" tag on first load (once). Looks up the tag id by
   // name; if there's no VR tag, nothing is excluded.
@@ -493,19 +442,41 @@ function CombinedGrid() {
     return undefined;
   }, [tagIds, excludeTagIds]);
 
-  // Fetch the entire filtered set of each stream, then order globally and
-  // paginate client-side (page changes don't refetch). For random we fetch by a
-  // stable key so reshuffling only re-runs the client-side hash — no refetch;
-  // the seed is applied only in the ordering step below.
-  const fetchSort = sort === "random" ? "created_at" : sort;
+  // Split each combined page proportionally between scenes and markers so a
+  // page holds ~pageSize items and successive pages continue from each stream's
+  // own offset. Only one page is fetched at a time (fast on large libraries).
+  // Counts lag one render (`counts`); until known, fetch a half-page of each.
+  const knownTotal = counts.s + counts.m;
+  let scenesPerPage: number;
+  let markersPerPage: number;
+  if (knownTotal === 0) {
+    scenesPerPage = Math.ceil(pageSize / 2);
+    markersPerPage = pageSize - scenesPerPage;
+  } else if (counts.s === 0) {
+    scenesPerPage = 0;
+    markersPerPage = pageSize;
+  } else if (counts.m === 0) {
+    scenesPerPage = pageSize;
+    markersPerPage = 0;
+  } else {
+    scenesPerPage = Math.min(
+      pageSize - 1,
+      Math.max(1, Math.round((pageSize * counts.s) / knownTotal))
+    );
+    markersPerPage = pageSize - scenesPerPage;
+  }
+
+  // Always random, paginated server-side via a stable seed (Stash's
+  // random_<seed>), so each page is a stable random slice of each stream.
+  const randomSort = `random_${seed}`;
 
   const scenesResult = PluginApi.GQL.useFindScenesQuery({
     variables: {
       filter: {
         q: q || undefined,
-        per_page: -1,
-        sort: fetchSort,
-        direction,
+        page: page + 1,
+        per_page: Math.max(1, scenesPerPage),
+        sort: randomSort,
       },
       scene_filter: {
         ...(tagCriterion ? { tags: tagCriterion } : {}),
@@ -519,9 +490,9 @@ function CombinedGrid() {
     variables: {
       filter: {
         q: q || undefined,
-        per_page: -1,
-        sort: fetchSort,
-        direction,
+        page: page + 1,
+        per_page: Math.max(1, markersPerPage),
+        sort: randomSort,
       },
       scene_marker_filter: tagCriterion ? { tags: tagCriterion } : {},
     },
@@ -533,38 +504,40 @@ function CombinedGrid() {
   const markers = markersResult?.data?.findSceneMarkers?.scene_markers ?? [];
   const markerCount = markersResult?.data?.findSceneMarkers?.count ?? 0;
 
-  const comparator = React.useMemo(
-    () => makeComparator(sort, direction),
-    [sort, direction]
-  );
+  // Feed real counts back (lagged) so the next render splits pages by ratio.
+  React.useEffect(() => {
+    setCounts((prev) =>
+      prev.s === sceneCount && prev.m === markerCount
+        ? prev
+        : { s: sceneCount, m: markerCount }
+    );
+  }, [sceneCount, markerCount]);
 
-  // Global order over the whole filtered set. Random uses a seed-stable hash so
-  // scenes and markers are shuffled together across the entire library (not per
-  // page); the comparable sorts use the shared key. Only the current page slice
-  // is rendered (below), so the DOM stays light regardless of total size.
-  const ordered = React.useMemo(() => {
+  // Interleave this page's scenes and markers into ONE randomized order (not
+  // scene-marker alternation) via a seed-stable hash, so the mix looks random
+  // but doesn't jump around on re-render.
+  const items = React.useMemo(() => {
     const all = [
       ...scenes.map((s: any) => ({ _kind: "scene", data: s })),
       ...markers.map((m: any) => ({ _kind: "marker", data: m })),
     ];
-    if (sort === "random") {
-      return all
-        .map((it: any) => ({ it, h: hash32(`${seed}:${it._kind}:${it.data.id}`) }))
-        .sort((a: any, b: any) => a.h - b.h)
-        .map((x: any) => x.it);
-    }
-    return all.sort(comparator);
-  }, [scenes, markers, sort, comparator, seed]);
+    return all
+      .map((it: any) => ({ it, h: hash32(`${seed}:${it._kind}:${it.data.id}`) }))
+      .sort((a: any, b: any) => a.h - b.h)
+      .map((x: any) => x.it);
+  }, [scenes, markers, seed]);
 
-  const totalCount = ordered.length;
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const items = React.useMemo(
-    () => ordered.slice(page * pageSize, page * pageSize + pageSize),
-    [ordered, page, pageSize]
-  );
-
+  const totalCount = sceneCount + markerCount;
+  const scenePages = scenesPerPage > 0 ? Math.ceil(sceneCount / scenesPerPage) : 0;
+  const markerPages = markersPerPage > 0 ? Math.ceil(markerCount / markersPerPage) : 0;
+  const totalPages = Math.max(1, scenePages, markerPages);
   const loading = scenesResult?.loading || markersResult?.loading;
   const error = scenesResult?.error || markersResult?.error;
+
+  // Keep the page index in range if the total shrinks (e.g. after a filter).
+  React.useEffect(() => {
+    if (page > totalPages - 1) setPage(totalPages - 1);
+  }, [totalPages, page]);
 
   // Keep the page index in range if the total shrinks (e.g. after a filter).
   React.useEffect(() => {
@@ -580,10 +553,6 @@ function CombinedGrid() {
         setSearch={setSearch}
         tagIds={tagIds}
         setTagIds={setTagIds}
-        sort={sort}
-        setSort={setSort}
-        direction={direction}
-        setDirection={setDirection}
         dedup={dedup}
         setDedup={setDedup}
         pageSize={pageSize}

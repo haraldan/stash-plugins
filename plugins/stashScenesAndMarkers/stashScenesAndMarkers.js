@@ -83,16 +83,6 @@
   function markerTitle(marker) {
     return marker.title || marker.primary_tag?.name || "";
   }
-  function keyOf(item, sortKey) {
-    if (item._kind === "scene") {
-      const s = item.data;
-      if (sortKey === "title") return (s.title || "").toLowerCase();
-      return s.created_at ?? null;
-    }
-    const m = item.data;
-    if (sortKey === "title") return markerTitle(m).toLowerCase();
-    return m.created_at ?? null;
-  }
   function hash32(str) {
     let h = 2166136261 >>> 0;
     for (let i = 0; i < str.length; i++) {
@@ -100,19 +90,6 @@
       h = Math.imul(h, 16777619) >>> 0;
     }
     return h >>> 0;
-  }
-  function makeComparator(sortKey, direction) {
-    const mult = direction === "ASC" ? 1 : -1;
-    return (a, b) => {
-      const ka = keyOf(a, sortKey);
-      const kb = keyOf(b, sortKey);
-      if (ka == null && kb == null) return 0;
-      if (ka == null) return 1;
-      if (kb == null) return -1;
-      if (ka < kb) return -1 * mult;
-      if (ka > kb) return 1 * mult;
-      return 0;
-    };
   }
   var ZOOM_WIDTHS = [280, 340, 480, 640];
   var ZOOM_INDEX = 1;
@@ -180,7 +157,7 @@
     );
   }
   function FilterBar(props) {
-    const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds } = props;
+    const { search, setSearch, tagIds, setTagIds, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds } = props;
     const tagsResult = PluginApi.GQL?.useFindTagsQuery ? PluginApi.GQL.useFindTagsQuery({
       variables: { filter: { per_page: 1e3, sort: "name", direction: "ASC" } }
     }) : useQuery(FIND_ALL_TAGS, {
@@ -232,34 +209,14 @@
         onChange: (vals) => setExcludeTagIds((vals || []).map((v) => v.value))
       }
     ) : null), /* @__PURE__ */ React.createElement(
-      Form.Control,
-      {
-        as: "select",
-        className: "snm-sort",
-        value: sort,
-        onChange: (e) => setSort(e.target.value)
-      },
-      /* @__PURE__ */ React.createElement("option", { value: "random" }, "Random"),
-      /* @__PURE__ */ React.createElement("option", { value: "created_at" }, "Date added"),
-      /* @__PURE__ */ React.createElement("option", { value: "title" }, "Title")
-    ), sort === "random" ? /* @__PURE__ */ React.createElement(
       Button,
       {
         variant: "secondary",
-        className: "snm-dir",
+        className: "snm-shuffle",
         onClick: onShuffle,
         title: "Reshuffle"
       },
-      "\u27F3"
-    ) : /* @__PURE__ */ React.createElement(
-      Button,
-      {
-        variant: "secondary",
-        className: "snm-dir",
-        onClick: () => setDirection(direction === "ASC" ? "DESC" : "ASC"),
-        title: "Toggle sort direction"
-      },
-      direction === "ASC" ? "\u2191" : "\u2193"
+      "\u27F3 Shuffle"
     ), /* @__PURE__ */ React.createElement(
       Form.Control,
       {
@@ -308,12 +265,11 @@
   function CombinedGrid() {
     const [search, setSearch] = React.useState("");
     const [tagIds, setTagIds] = React.useState([]);
-    const [sort, setSort] = React.useState("random");
-    const [direction, setDirection] = React.useState("DESC");
     const [dedup, setDedup] = React.useState(true);
     const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
     const [page, setPage] = React.useState(0);
     const [excludeTagIds, setExcludeTagIds] = React.useState([]);
+    const [counts, setCounts] = React.useState({ s: 0, m: 0 });
     const [seed, setSeed] = React.useState(() => Math.floor(Math.random() * 1e9));
     const q = useDebounced(search, 300);
     const [gridRef, containerWidth] = useContainerWidth();
@@ -331,7 +287,7 @@
     }, []);
     React.useEffect(() => {
       setPage(0);
-    }, [q, tagIds, excludeTagIds, sort, direction, dedup, pageSize, seed]);
+    }, [q, tagIds, excludeTagIds, dedup, pageSize, seed]);
     const vrLookup = PluginApi.GQL.useFindTagsQuery({
       variables: { filter: { q: "VR", per_page: 25 } }
     });
@@ -353,14 +309,33 @@
       if (exc.length) return { value: exc, modifier: "EXCLUDES", depth: -1 };
       return void 0;
     }, [tagIds, excludeTagIds]);
-    const fetchSort = sort === "random" ? "created_at" : sort;
+    const knownTotal = counts.s + counts.m;
+    let scenesPerPage;
+    let markersPerPage;
+    if (knownTotal === 0) {
+      scenesPerPage = Math.ceil(pageSize / 2);
+      markersPerPage = pageSize - scenesPerPage;
+    } else if (counts.s === 0) {
+      scenesPerPage = 0;
+      markersPerPage = pageSize;
+    } else if (counts.m === 0) {
+      scenesPerPage = pageSize;
+      markersPerPage = 0;
+    } else {
+      scenesPerPage = Math.min(
+        pageSize - 1,
+        Math.max(1, Math.round(pageSize * counts.s / knownTotal))
+      );
+      markersPerPage = pageSize - scenesPerPage;
+    }
+    const randomSort = `random_${seed}`;
     const scenesResult = PluginApi.GQL.useFindScenesQuery({
       variables: {
         filter: {
           q: q || void 0,
-          per_page: -1,
-          sort: fetchSort,
-          direction
+          page: page + 1,
+          per_page: Math.max(1, scenesPerPage),
+          sort: randomSort
         },
         scene_filter: {
           ...tagCriterion ? { tags: tagCriterion } : {},
@@ -373,9 +348,9 @@
       variables: {
         filter: {
           q: q || void 0,
-          per_page: -1,
-          sort: fetchSort,
-          direction
+          page: page + 1,
+          per_page: Math.max(1, markersPerPage),
+          sort: randomSort
         },
         scene_marker_filter: tagCriterion ? { tags: tagCriterion } : {}
       },
@@ -385,28 +360,27 @@
     const sceneCount = scenesResult?.data?.findScenes?.count ?? 0;
     const markers = markersResult?.data?.findSceneMarkers?.scene_markers ?? [];
     const markerCount = markersResult?.data?.findSceneMarkers?.count ?? 0;
-    const comparator = React.useMemo(
-      () => makeComparator(sort, direction),
-      [sort, direction]
-    );
-    const ordered = React.useMemo(() => {
+    React.useEffect(() => {
+      setCounts(
+        (prev) => prev.s === sceneCount && prev.m === markerCount ? prev : { s: sceneCount, m: markerCount }
+      );
+    }, [sceneCount, markerCount]);
+    const items = React.useMemo(() => {
       const all = [
         ...scenes.map((s) => ({ _kind: "scene", data: s })),
         ...markers.map((m) => ({ _kind: "marker", data: m }))
       ];
-      if (sort === "random") {
-        return all.map((it) => ({ it, h: hash32(`${seed}:${it._kind}:${it.data.id}`) })).sort((a, b) => a.h - b.h).map((x) => x.it);
-      }
-      return all.sort(comparator);
-    }, [scenes, markers, sort, comparator, seed]);
-    const totalCount = ordered.length;
-    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-    const items = React.useMemo(
-      () => ordered.slice(page * pageSize, page * pageSize + pageSize),
-      [ordered, page, pageSize]
-    );
+      return all.map((it) => ({ it, h: hash32(`${seed}:${it._kind}:${it.data.id}`) })).sort((a, b) => a.h - b.h).map((x) => x.it);
+    }, [scenes, markers, seed]);
+    const totalCount = sceneCount + markerCount;
+    const scenePages = scenesPerPage > 0 ? Math.ceil(sceneCount / scenesPerPage) : 0;
+    const markerPages = markersPerPage > 0 ? Math.ceil(markerCount / markersPerPage) : 0;
+    const totalPages = Math.max(1, scenePages, markerPages);
     const loading = scenesResult?.loading || markersResult?.loading;
     const error = scenesResult?.error || markersResult?.error;
+    React.useEffect(() => {
+      if (page > totalPages - 1) setPage(totalPages - 1);
+    }, [totalPages, page]);
     React.useEffect(() => {
       if (page > totalPages - 1) setPage(totalPages - 1);
     }, [totalPages, page]);
@@ -417,10 +391,6 @@
         setSearch,
         tagIds,
         setTagIds,
-        sort,
-        setSort,
-        direction,
-        setDirection,
         dedup,
         setDedup,
         pageSize,
