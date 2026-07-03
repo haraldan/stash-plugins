@@ -162,13 +162,54 @@ function makeComparator(sortKey: string, direction: "ASC" | "DESC") {
 }
 
 // ---------------------------------------------------------------------------
+// Card sizing — replicated from Stash's GridCard so our mixed grid tiles into
+// uniform rows exactly like the native scene/marker grids.
+// ---------------------------------------------------------------------------
+
+const ZOOM_WIDTHS = [280, 340, 480, 640];
+const ZOOM_INDEX = 1; // typical default grid density
+
+// Stash's calculateCardWidth (containerPadding 30, cardMargin 10).
+function calculateCardWidth(containerWidth: number, preferredWidth: number): number {
+  const containerPadding = 30;
+  const cardMargin = 10;
+  const maxUsableWidth = containerWidth - containerPadding;
+  const maxElementsOnRow = Math.ceil(maxUsableWidth / preferredWidth);
+  return maxUsableWidth / maxElementsOnRow - cardMargin;
+}
+
+function cardWidthFor(containerWidth: number, zoomIndex: number): number {
+  const preferred = ZOOM_WIDTHS[zoomIndex] ?? ZOOM_WIDTHS[1];
+  if (!containerWidth) return preferred;
+  return calculateCardWidth(containerWidth, preferred);
+}
+
+// Measure the grid container width (ResizeObserver, 20px sensitivity like
+// Stash's useContainerDimensions).
+function useContainerWidth(): [any, number] {
+  const ref = React.useRef<any>(null);
+  const [width, setWidth] = React.useState(0);
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries: any) => {
+      const w = entries[0]?.contentRect?.width;
+      if (w) setWidth((prev: number) => (Math.abs(prev - w) > 20 ? w : prev));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width];
+}
+
+// ---------------------------------------------------------------------------
 // Cards
 // ---------------------------------------------------------------------------
 
 // Minimal fallback card used only if Stash's own components are unavailable.
-function SimpleCard({ href, image, title, subtitle, badge }: any) {
+function SimpleCard({ href, image, title, subtitle, badge, width }: any) {
   return (
-    <div className="snm-simple-card">
+    <div className="snm-simple-card" style={width ? { width: `${width}px` } : undefined}>
       <a href={href}>
         {image ? <img src={image} alt={title} loading="lazy" /> : null}
         <div className="snm-simple-card-body">
@@ -183,23 +224,28 @@ function SimpleCard({ href, image, title, subtitle, badge }: any) {
   );
 }
 
-function ItemCard({ item }: any) {
+function ItemCard({ item, width, zoomIndex }: any) {
   const components = PluginApi.components || {};
   if (item._kind === "scene") {
     const SceneCard = components.SceneCard;
-    if (SceneCard) return <SceneCard scene={item.data} />;
+    // SceneCard's width prop is `width`.
+    if (SceneCard)
+      return <SceneCard scene={item.data} width={width} zoomIndex={zoomIndex} />;
     const s = item.data;
     return (
       <SimpleCard
         href={`/scenes/${s.id}`}
         image={s.paths?.screenshot}
         title={s.title || s.files?.[0]?.path || `Scene ${s.id}`}
+        width={width}
       />
     );
   }
   // marker
   const SceneMarkerCard = components.SceneMarkerCard;
-  if (SceneMarkerCard) return <SceneMarkerCard marker={item.data} />;
+  // SceneMarkerCard's width prop is `cardWidth` (differs from SceneCard).
+  if (SceneMarkerCard)
+    return <SceneMarkerCard marker={item.data} cardWidth={width} zoomIndex={zoomIndex} />;
   const m = item.data;
   return (
     <SimpleCard
@@ -208,6 +254,7 @@ function ItemCard({ item }: any) {
       title={markerTitle(m)}
       subtitle={m.scene?.title}
       badge="marker"
+      width={width}
     />
   );
 }
@@ -339,6 +386,13 @@ function CombinedGrid() {
 
   const q = useDebounced(search, 300);
 
+  // Measure the grid to size cards uniformly like the native grid.
+  const [gridRef, containerWidth] = useContainerWidth();
+  const cardWidth = React.useMemo(
+    () => cardWidthFor(containerWidth, ZOOM_INDEX),
+    [containerWidth]
+  );
+
   const reshuffle = React.useCallback(() => {
     setSeed(Math.floor(Math.random() * 1e9));
     setLimit(pageSize);
@@ -463,9 +517,14 @@ function CombinedGrid() {
         <div className="snm-error">Error loading: {String(error.message || error)}</div>
       ) : null}
 
-      <div className="row justify-content-center snm-grid">
+      <div className="row justify-content-center snm-grid" ref={gridRef}>
         {items.map((item: any) => (
-          <ItemCard key={`${item._kind}-${item.data.id}`} item={item} />
+          <ItemCard
+            key={`${item._kind}-${item.data.id}`}
+            item={item}
+            width={cardWidth}
+            zoomIndex={ZOOM_INDEX}
+          />
         ))}
       </div>
 

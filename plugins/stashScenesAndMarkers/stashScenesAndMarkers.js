@@ -118,26 +118,58 @@
       return 0;
     };
   }
-  function SimpleCard({ href, image, title, subtitle, badge }) {
-    return /* @__PURE__ */ React.createElement("div", { className: "snm-simple-card" }, /* @__PURE__ */ React.createElement("a", { href }, image ? /* @__PURE__ */ React.createElement("img", { src: image, alt: title, loading: "lazy" }) : null, /* @__PURE__ */ React.createElement("div", { className: "snm-simple-card-body" }, badge ? /* @__PURE__ */ React.createElement("span", { className: "snm-badge" }, badge) : null, /* @__PURE__ */ React.createElement("div", { className: "snm-simple-card-title" }, title), subtitle ? /* @__PURE__ */ React.createElement("div", { className: "snm-simple-card-subtitle" }, subtitle) : null)));
+  var ZOOM_WIDTHS = [280, 340, 480, 640];
+  var ZOOM_INDEX = 1;
+  function calculateCardWidth(containerWidth, preferredWidth) {
+    const containerPadding = 30;
+    const cardMargin = 10;
+    const maxUsableWidth = containerWidth - containerPadding;
+    const maxElementsOnRow = Math.ceil(maxUsableWidth / preferredWidth);
+    return maxUsableWidth / maxElementsOnRow - cardMargin;
   }
-  function ItemCard({ item }) {
+  function cardWidthFor(containerWidth, zoomIndex) {
+    const preferred = ZOOM_WIDTHS[zoomIndex] ?? ZOOM_WIDTHS[1];
+    if (!containerWidth) return preferred;
+    return calculateCardWidth(containerWidth, preferred);
+  }
+  function useContainerWidth() {
+    const ref = React.useRef(null);
+    const [width, setWidth] = React.useState(0);
+    React.useEffect(() => {
+      const el = ref.current;
+      if (!el || typeof ResizeObserver === "undefined") return;
+      const ro = new ResizeObserver((entries) => {
+        const w = entries[0]?.contentRect?.width;
+        if (w) setWidth((prev) => Math.abs(prev - w) > 20 ? w : prev);
+      });
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, []);
+    return [ref, width];
+  }
+  function SimpleCard({ href, image, title, subtitle, badge, width }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "snm-simple-card", style: width ? { width: `${width}px` } : void 0 }, /* @__PURE__ */ React.createElement("a", { href }, image ? /* @__PURE__ */ React.createElement("img", { src: image, alt: title, loading: "lazy" }) : null, /* @__PURE__ */ React.createElement("div", { className: "snm-simple-card-body" }, badge ? /* @__PURE__ */ React.createElement("span", { className: "snm-badge" }, badge) : null, /* @__PURE__ */ React.createElement("div", { className: "snm-simple-card-title" }, title), subtitle ? /* @__PURE__ */ React.createElement("div", { className: "snm-simple-card-subtitle" }, subtitle) : null)));
+  }
+  function ItemCard({ item, width, zoomIndex }) {
     const components = PluginApi.components || {};
     if (item._kind === "scene") {
       const SceneCard = components.SceneCard;
-      if (SceneCard) return /* @__PURE__ */ React.createElement(SceneCard, { scene: item.data });
+      if (SceneCard)
+        return /* @__PURE__ */ React.createElement(SceneCard, { scene: item.data, width, zoomIndex });
       const s = item.data;
       return /* @__PURE__ */ React.createElement(
         SimpleCard,
         {
           href: `/scenes/${s.id}`,
           image: s.paths?.screenshot,
-          title: s.title || s.files?.[0]?.path || `Scene ${s.id}`
+          title: s.title || s.files?.[0]?.path || `Scene ${s.id}`,
+          width
         }
       );
     }
     const SceneMarkerCard = components.SceneMarkerCard;
-    if (SceneMarkerCard) return /* @__PURE__ */ React.createElement(SceneMarkerCard, { marker: item.data });
+    if (SceneMarkerCard)
+      return /* @__PURE__ */ React.createElement(SceneMarkerCard, { marker: item.data, cardWidth: width, zoomIndex });
     const m = item.data;
     return /* @__PURE__ */ React.createElement(
       SimpleCard,
@@ -146,7 +178,8 @@
         image: m.screenshot || m.scene?.paths?.screenshot,
         title: markerTitle(m),
         subtitle: m.scene?.title,
-        badge: "marker"
+        badge: "marker",
+        width
       }
     );
   }
@@ -245,6 +278,11 @@
     const [limit, setLimit] = React.useState(DEFAULT_PAGE_SIZE);
     const [seed, setSeed] = React.useState(() => Math.floor(Math.random() * 1e9));
     const q = useDebounced(search, 300);
+    const [gridRef, containerWidth] = useContainerWidth();
+    const cardWidth = React.useMemo(
+      () => cardWidthFor(containerWidth, ZOOM_INDEX),
+      [containerWidth]
+    );
     const reshuffle = React.useCallback(() => {
       setSeed(Math.floor(Math.random() * 1e9));
       setLimit(pageSize);
@@ -331,7 +369,15 @@
         setPageSize,
         onShuffle: reshuffle
       }
-    ), /* @__PURE__ */ React.createElement("div", { className: "snm-counts" }, "Showing ", items.length, " of ", totalCount, " items \xB7 ", sceneCount, " scenes \xB7 ", markerCount, " markers"), error ? /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "Error loading: ", String(error.message || error)) : null, /* @__PURE__ */ React.createElement("div", { className: "row justify-content-center snm-grid" }, items.map((item) => /* @__PURE__ */ React.createElement(ItemCard, { key: `${item._kind}-${item.data.id}`, item }))), loading ? /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" })) : null, hasMore ? /* @__PURE__ */ React.createElement("div", { ref: sentinelRef, className: "snm-sentinel" }, /* @__PURE__ */ React.createElement(Button, { variant: "secondary", onClick: () => setLimit((l) => l + pageSize) }, "Load more")) : null);
+    ), /* @__PURE__ */ React.createElement("div", { className: "snm-counts" }, "Showing ", items.length, " of ", totalCount, " items \xB7 ", sceneCount, " scenes \xB7 ", markerCount, " markers"), error ? /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "Error loading: ", String(error.message || error)) : null, /* @__PURE__ */ React.createElement("div", { className: "row justify-content-center snm-grid", ref: gridRef }, items.map((item) => /* @__PURE__ */ React.createElement(
+      ItemCard,
+      {
+        key: `${item._kind}-${item.data.id}`,
+        item,
+        width: cardWidth,
+        zoomIndex: ZOOM_INDEX
+      }
+    ))), loading ? /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" })) : null, hasMore ? /* @__PURE__ */ React.createElement("div", { ref: sentinelRef, className: "snm-sentinel" }, /* @__PURE__ */ React.createElement(Button, { variant: "secondary", onClick: () => setLimit((l) => l + pageSize) }, "Load more")) : null);
   }
   function Page() {
     const loadable = PluginApi.loadableComponents || {};
