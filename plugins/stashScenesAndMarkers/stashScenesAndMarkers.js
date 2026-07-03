@@ -213,6 +213,8 @@
         isMulti: true,
         placeholder: "Include tags\u2026",
         classNamePrefix: "react-select",
+        menuPortalTarget: typeof document !== "undefined" ? document.body : null,
+        styles: { menuPortal: (base) => ({ ...base, zIndex: 9999 }) },
         options: tagOptions,
         value: selectedTagOptions,
         onChange: (vals) => setTagIds((vals || []).map((v) => v.value))
@@ -223,6 +225,8 @@
         isMulti: true,
         placeholder: "Exclude tags\u2026",
         classNamePrefix: "react-select",
+        menuPortalTarget: typeof document !== "undefined" ? document.body : null,
+        styles: { menuPortal: (base) => ({ ...base, zIndex: 9999 }) },
         options: tagOptions,
         value: selectedExcludeOptions,
         onChange: (vals) => setExcludeTagIds((vals || []).map((v) => v.value))

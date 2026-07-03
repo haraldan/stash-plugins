@@ -77,6 +77,31 @@
   white-space: nowrap;
 }
 
+/* Distinguish marker cards at a glance. SceneMarkerCard renders with the
+   .scene-marker-card class in Stash's own markup. */
+.snm-grid .scene-marker-card {
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.55);
+}
+
+/* Muted-red chips for excluded tags, to distinguish from the include selector. */
+.snm-tagselect-exclude .react-select__multi-value {
+  background-color: rgba(150, 55, 55, 0.55);
+}
+
+.snm-tagselect-exclude .react-select__multi-value__label {
+  color: #f2dede;
+}
+
+.snm-tagselect-exclude .react-select__multi-value__remove:hover {
+  background-color: rgba(180, 60, 60, 0.85);
+  color: #fff;
+}
+
+/* Ensure the tag dropdown menus float above the card overlays (studio names). */
+.react-select__menu {
+  z-index: 1000;
+}
+
 /* Fallback SimpleCard styling (only used when Stash components are absent). */
 .snm-simple-card {
   width: 250px;

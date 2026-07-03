@@ -300,6 +300,8 @@ function FilterBar(props: any) {
             isMulti
             placeholder="Include tags…"
             classNamePrefix="react-select"
+            menuPortalTarget={typeof document !== "undefined" ? document.body : null}
+            styles={{ menuPortal: (base: any) => ({ ...base, zIndex: 9999 }) }}
             options={tagOptions}
             value={selectedTagOptions}
             onChange={(vals: any) =>
@@ -315,6 +317,8 @@ function FilterBar(props: any) {
             isMulti
             placeholder="Exclude tags…"
             classNamePrefix="react-select"
+            menuPortalTarget={typeof document !== "undefined" ? document.body : null}
+            styles={{ menuPortal: (base: any) => ({ ...base, zIndex: 9999 }) }}
             options={tagOptions}
             value={selectedExcludeOptions}
             onChange={(vals: any) =>
