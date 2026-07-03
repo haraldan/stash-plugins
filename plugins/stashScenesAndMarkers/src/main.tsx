@@ -127,22 +127,16 @@ function keyOf(item: any, sortKey: string): string | null {
   return m.created_at ?? null; // "created_at" — the marker's own add time
 }
 
-// Server sort string. Random uses a stable seed so pagination is consistent
-// across "load more" (Stash's random_<seed> convention).
-function sortParam(sort: string, seed: number): string {
-  return sort === "random" ? `random_${seed}` : sort;
-}
-
-// Interleave two already-ordered streams. Append-stable: growing either input
-// only extends the tail, so "load more" never reorders what's on screen.
-function roundRobin(a: any[], b: any[]): any[] {
-  const out: any[] = [];
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    if (i < a.length) out.push(a[i]);
-    if (i < b.length) out.push(b[i]);
+// Deterministic 32-bit hash (FNV-1a). Used to shuffle the scene+marker mix in a
+// way that's stable for a given seed, so random order doesn't reshuffle on
+// re-render but does interleave the two kinds (rather than strict alternation).
+function hash32(str: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
   }
-  return out;
+  return h >>> 0;
 }
 
 // Comparator producing the requested order. Nulls always sort last regardless
@@ -264,7 +258,7 @@ function ItemCard({ item, width, zoomIndex }: any) {
 // ---------------------------------------------------------------------------
 
 function FilterBar(props: any) {
-  const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize, onShuffle } = props;
+  const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds } = props;
 
   // Load all tags once for the selector (personal-library scale).
   const tagsResult = PluginApi.GQL?.useFindTagsQuery
@@ -285,6 +279,11 @@ function FilterBar(props: any) {
     [tagOptions, tagIds]
   );
 
+  const selectedExcludeOptions = React.useMemo(
+    () => tagOptions.filter((o: any) => excludeTagIds.includes(o.value)),
+    [tagOptions, excludeTagIds]
+  );
+
   return (
     <div className="snm-filterbar">
       <Form.Control
@@ -299,12 +298,27 @@ function FilterBar(props: any) {
         {ReactSelect ? (
           <ReactSelect
             isMulti
-            placeholder="Tags…"
+            placeholder="Include tags…"
             classNamePrefix="react-select"
             options={tagOptions}
             value={selectedTagOptions}
             onChange={(vals: any) =>
               setTagIds((vals || []).map((v: any) => v.value))
+            }
+          />
+        ) : null}
+      </div>
+
+      <div className="snm-tagselect snm-tagselect-exclude">
+        {ReactSelect ? (
+          <ReactSelect
+            isMulti
+            placeholder="Exclude tags…"
+            classNamePrefix="react-select"
+            options={tagOptions}
+            value={selectedExcludeOptions}
+            onChange={(vals: any) =>
+              setExcludeTagIds((vals || []).map((v: any) => v.value))
             }
           />
         ) : null}
@@ -368,6 +382,44 @@ function FilterBar(props: any) {
 }
 
 // ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+function Pager({ page, totalPages, onPage }: any) {
+  if (totalPages <= 1) return null;
+  const go = (p: number) => onPage(Math.max(0, Math.min(totalPages - 1, p)));
+  return (
+    <div className="snm-pager">
+      <Button variant="secondary" disabled={page <= 0} onClick={() => go(0)} title="First">
+        «
+      </Button>
+      <Button variant="secondary" disabled={page <= 0} onClick={() => go(page - 1)} title="Previous">
+        ‹
+      </Button>
+      <span className="snm-pageinfo">
+        Page {page + 1} of {totalPages}
+      </span>
+      <Button
+        variant="secondary"
+        disabled={page >= totalPages - 1}
+        onClick={() => go(page + 1)}
+        title="Next"
+      >
+        ›
+      </Button>
+      <Button
+        variant="secondary"
+        disabled={page >= totalPages - 1}
+        onClick={() => go(totalPages - 1)}
+        title="Last"
+      >
+        »
+      </Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -378,10 +430,10 @@ function CombinedGrid() {
   const [direction, setDirection] = React.useState<"ASC" | "DESC">("DESC");
   const [dedup, setDedup] = React.useState(true);
   const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
-  // How many merged items to display. Starts at one page and grows on demand.
-  const [limit, setLimit] = React.useState(DEFAULT_PAGE_SIZE);
-  // Stable random seed so "random" paginates consistently. New order only on
-  // mount or an explicit reshuffle.
+  const [page, setPage] = React.useState(0);
+  const [excludeTagIds, setExcludeTagIds] = React.useState<string[]>([]);
+  // Stable random seed so random ordering is consistent within a browse
+  // session; new order only on mount or an explicit reshuffle.
   const [seed, setSeed] = React.useState(() => Math.floor(Math.random() * 1e9));
 
   const q = useDebounced(search, 300);
@@ -395,27 +447,60 @@ function CombinedGrid() {
 
   const reshuffle = React.useCallback(() => {
     setSeed(Math.floor(Math.random() * 1e9));
-    setLimit(pageSize);
-  }, [pageSize]);
+    setPage(0);
+  }, []);
 
-  // Reset the display window whenever the query shape or page size changes.
+  const goToPage = React.useCallback((p: number) => {
+    setPage(p);
+    window.scrollTo({ top: 0 });
+  }, []);
+
+  // Return to page 1 whenever the query shape or page size changes.
   React.useEffect(() => {
-    setLimit(pageSize);
-  }, [q, tagIds, sort, direction, dedup, pageSize]);
+    setPage(0);
+  }, [q, tagIds, excludeTagIds, sort, direction, dedup, pageSize, seed]);
 
-  const tagCriterion =
-    tagIds.length > 0
-      ? { value: tagIds, modifier: "INCLUDES", depth: -1 }
-      : undefined;
+  // Default: exclude the "VR" tag on first load (once). Looks up the tag id by
+  // name; if there's no VR tag, nothing is excluded.
+  const vrLookup = PluginApi.GQL.useFindTagsQuery({
+    variables: { filter: { q: "VR", per_page: 25 } },
+  });
+  const defaultApplied = React.useRef(false);
+  React.useEffect(() => {
+    if (defaultApplied.current) return;
+    const tags = vrLookup?.data?.findTags?.tags;
+    if (!tags) return; // wait for the lookup to resolve
+    defaultApplied.current = true;
+    const vr = tags.find((t: any) => (t.name || "").toLowerCase() === "vr");
+    if (vr) setExcludeTagIds([vr.id]);
+  }, [vrLookup?.data]);
 
-  // Scenes: server-paged via an expanding window (per_page = limit).
+  // Combined include/exclude tag filter → one HierarchicalMultiCriterionInput.
+  // Applies to scenes (their tags) and markers (primary_tag ∪ tags, unioned
+  // server-side). `excludes` lets us include some tags and exclude others at
+  // once; exclude-only uses the EXCLUDES modifier.
+  const tagCriterion = React.useMemo(() => {
+    const inc = tagIds;
+    const exc = excludeTagIds;
+    if (inc.length && exc.length)
+      return { value: inc, excludes: exc, modifier: "INCLUDES", depth: -1 };
+    if (inc.length) return { value: inc, modifier: "INCLUDES", depth: -1 };
+    if (exc.length) return { value: exc, modifier: "EXCLUDES", depth: -1 };
+    return undefined;
+  }, [tagIds, excludeTagIds]);
+
+  // Fetch the entire filtered set of each stream, then order globally and
+  // paginate client-side (page changes don't refetch). For random we fetch by a
+  // stable key so reshuffling only re-runs the client-side hash — no refetch;
+  // the seed is applied only in the ordering step below.
+  const fetchSort = sort === "random" ? "created_at" : sort;
+
   const scenesResult = PluginApi.GQL.useFindScenesQuery({
     variables: {
       filter: {
         q: q || undefined,
-        page: 1,
-        per_page: limit,
-        sort: sortParam(sort, seed),
+        per_page: -1,
+        sort: fetchSort,
         direction,
       },
       scene_filter: {
@@ -426,15 +511,12 @@ function CombinedGrid() {
     fetchPolicy: "cache-and-network",
   });
 
-  // Markers: paged server-side with the same sort as scenes (never fetch all —
-  // that hangs on large libraries).
   const markersResult = useQuery(FIND_ALL_MARKERS, {
     variables: {
       filter: {
         q: q || undefined,
-        page: 1,
-        per_page: limit,
-        sort: sortParam(sort, seed),
+        per_page: -1,
+        sort: fetchSort,
         direction,
       },
       scene_marker_filter: tagCriterion ? { tags: tagCriterion } : {},
@@ -452,42 +534,38 @@ function CombinedGrid() {
     [sort, direction]
   );
 
-  // Both streams are paged to `limit` and server-sorted by the same key. For
-  // the comparable sorts, merging the two windows and slicing to `limit` yields
-  // the exact true top-`limit` (any item belonging there is within its own
-  // stream's top `limit`, so it's loaded). For "random", the two server-random
-  // windows are interleaved round-robin — append-stable across "load more".
-  const merged = React.useMemo(() => {
-    const sceneItems = scenes.map((s: any) => ({ _kind: "scene", data: s }));
-    const markerItems = markers.map((m: any) => ({ _kind: "marker", data: m }));
-    if (sort === "random") return roundRobin(sceneItems, markerItems);
-    return [...sceneItems, ...markerItems].sort(comparator);
-  }, [scenes, markers, sort, comparator]);
+  // Global order over the whole filtered set. Random uses a seed-stable hash so
+  // scenes and markers are shuffled together across the entire library (not per
+  // page); the comparable sorts use the shared key. Only the current page slice
+  // is rendered (below), so the DOM stays light regardless of total size.
+  const ordered = React.useMemo(() => {
+    const all = [
+      ...scenes.map((s: any) => ({ _kind: "scene", data: s })),
+      ...markers.map((m: any) => ({ _kind: "marker", data: m })),
+    ];
+    if (sort === "random") {
+      return all
+        .map((it: any) => ({ it, h: hash32(`${seed}:${it._kind}:${it.data.id}`) }))
+        .sort((a: any, b: any) => a.h - b.h)
+        .map((x: any) => x.it);
+    }
+    return all.sort(comparator);
+  }, [scenes, markers, sort, comparator, seed]);
 
-  const items = React.useMemo(() => merged.slice(0, limit), [merged, limit]);
+  const totalCount = ordered.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const items = React.useMemo(
+    () => ordered.slice(page * pageSize, page * pageSize + pageSize),
+    [ordered, page, pageSize]
+  );
 
-  const totalCount = sceneCount + markerCount;
-  const hasMore =
-    merged.length > limit ||
-    scenes.length < sceneCount ||
-    markers.length < markerCount;
   const loading = scenesResult?.loading || markersResult?.loading;
   const error = scenesResult?.error || markersResult?.error;
 
-  // Infinite-scroll sentinel.
-  const sentinelRef = React.useRef<any>(null);
+  // Keep the page index in range if the total shrinks (e.g. after a filter).
   React.useEffect(() => {
-    if (!hasMore) return;
-    const el = sentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting) && !loading) {
-        setLimit((l: number) => l + pageSize);
-      }
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [hasMore, loading, pageSize]);
+    if (page > totalPages - 1) setPage(totalPages - 1);
+  }, [totalPages, page]);
 
   return (
     <div className="snm-page">
@@ -507,11 +585,15 @@ function CombinedGrid() {
         pageSize={pageSize}
         setPageSize={setPageSize}
         onShuffle={reshuffle}
+        excludeTagIds={excludeTagIds}
+        setExcludeTagIds={setExcludeTagIds}
       />
 
       <div className="snm-counts">
-        Showing {items.length} of {totalCount} items · {sceneCount} scenes · {markerCount} markers
+        Page {page + 1} of {totalPages} · {totalCount} items ({sceneCount} scenes, {markerCount} markers)
       </div>
+
+      <Pager page={page} totalPages={totalPages} onPage={goToPage} />
 
       {error ? (
         <div className="snm-error">Error loading: {String(error.message || error)}</div>
@@ -534,13 +616,7 @@ function CombinedGrid() {
         </div>
       ) : null}
 
-      {hasMore ? (
-        <div ref={sentinelRef} className="snm-sentinel">
-          <Button variant="secondary" onClick={() => setLimit((l: number) => l + pageSize)}>
-            Load more
-          </Button>
-        </div>
-      ) : null}
+      <Pager page={page} totalPages={totalPages} onPage={goToPage} />
     </div>
   );
 }

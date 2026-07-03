@@ -93,17 +93,13 @@
     if (sortKey === "title") return markerTitle(m).toLowerCase();
     return m.created_at ?? null;
   }
-  function sortParam(sort, seed) {
-    return sort === "random" ? `random_${seed}` : sort;
-  }
-  function roundRobin(a, b) {
-    const out = [];
-    const n = Math.max(a.length, b.length);
-    for (let i = 0; i < n; i++) {
-      if (i < a.length) out.push(a[i]);
-      if (i < b.length) out.push(b[i]);
+  function hash32(str) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
     }
-    return out;
+    return h >>> 0;
   }
   function makeComparator(sortKey, direction) {
     const mult = direction === "ASC" ? 1 : -1;
@@ -184,7 +180,7 @@
     );
   }
   function FilterBar(props) {
-    const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize, onShuffle } = props;
+    const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds } = props;
     const tagsResult = PluginApi.GQL?.useFindTagsQuery ? PluginApi.GQL.useFindTagsQuery({
       variables: { filter: { per_page: 1e3, sort: "name", direction: "ASC" } }
     }) : useQuery(FIND_ALL_TAGS, {
@@ -197,6 +193,10 @@
     const selectedTagOptions = React.useMemo(
       () => tagOptions.filter((o) => tagIds.includes(o.value)),
       [tagOptions, tagIds]
+    );
+    const selectedExcludeOptions = React.useMemo(
+      () => tagOptions.filter((o) => excludeTagIds.includes(o.value)),
+      [tagOptions, excludeTagIds]
     );
     return /* @__PURE__ */ React.createElement("div", { className: "snm-filterbar" }, /* @__PURE__ */ React.createElement(
       Form.Control,
@@ -211,11 +211,21 @@
       ReactSelect,
       {
         isMulti: true,
-        placeholder: "Tags\u2026",
+        placeholder: "Include tags\u2026",
         classNamePrefix: "react-select",
         options: tagOptions,
         value: selectedTagOptions,
         onChange: (vals) => setTagIds((vals || []).map((v) => v.value))
+      }
+    ) : null), /* @__PURE__ */ React.createElement("div", { className: "snm-tagselect snm-tagselect-exclude" }, ReactSelect ? /* @__PURE__ */ React.createElement(
+      ReactSelect,
+      {
+        isMulti: true,
+        placeholder: "Exclude tags\u2026",
+        classNamePrefix: "react-select",
+        options: tagOptions,
+        value: selectedExcludeOptions,
+        onChange: (vals) => setExcludeTagIds((vals || []).map((v) => v.value))
       }
     ) : null), /* @__PURE__ */ React.createElement(
       Form.Control,
@@ -268,6 +278,29 @@
       }
     ));
   }
+  function Pager({ page, totalPages, onPage }) {
+    if (totalPages <= 1) return null;
+    const go = (p) => onPage(Math.max(0, Math.min(totalPages - 1, p)));
+    return /* @__PURE__ */ React.createElement("div", { className: "snm-pager" }, /* @__PURE__ */ React.createElement(Button, { variant: "secondary", disabled: page <= 0, onClick: () => go(0), title: "First" }, "\xAB"), /* @__PURE__ */ React.createElement(Button, { variant: "secondary", disabled: page <= 0, onClick: () => go(page - 1), title: "Previous" }, "\u2039"), /* @__PURE__ */ React.createElement("span", { className: "snm-pageinfo" }, "Page ", page + 1, " of ", totalPages), /* @__PURE__ */ React.createElement(
+      Button,
+      {
+        variant: "secondary",
+        disabled: page >= totalPages - 1,
+        onClick: () => go(page + 1),
+        title: "Next"
+      },
+      "\u203A"
+    ), /* @__PURE__ */ React.createElement(
+      Button,
+      {
+        variant: "secondary",
+        disabled: page >= totalPages - 1,
+        onClick: () => go(totalPages - 1),
+        title: "Last"
+      },
+      "\xBB"
+    ));
+  }
   function CombinedGrid() {
     const [search, setSearch] = React.useState("");
     const [tagIds, setTagIds] = React.useState([]);
@@ -275,7 +308,8 @@
     const [direction, setDirection] = React.useState("DESC");
     const [dedup, setDedup] = React.useState(true);
     const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
-    const [limit, setLimit] = React.useState(DEFAULT_PAGE_SIZE);
+    const [page, setPage] = React.useState(0);
+    const [excludeTagIds, setExcludeTagIds] = React.useState([]);
     const [seed, setSeed] = React.useState(() => Math.floor(Math.random() * 1e9));
     const q = useDebounced(search, 300);
     const [gridRef, containerWidth] = useContainerWidth();
@@ -285,19 +319,43 @@
     );
     const reshuffle = React.useCallback(() => {
       setSeed(Math.floor(Math.random() * 1e9));
-      setLimit(pageSize);
-    }, [pageSize]);
+      setPage(0);
+    }, []);
+    const goToPage = React.useCallback((p) => {
+      setPage(p);
+      window.scrollTo({ top: 0 });
+    }, []);
     React.useEffect(() => {
-      setLimit(pageSize);
-    }, [q, tagIds, sort, direction, dedup, pageSize]);
-    const tagCriterion = tagIds.length > 0 ? { value: tagIds, modifier: "INCLUDES", depth: -1 } : void 0;
+      setPage(0);
+    }, [q, tagIds, excludeTagIds, sort, direction, dedup, pageSize, seed]);
+    const vrLookup = PluginApi.GQL.useFindTagsQuery({
+      variables: { filter: { q: "VR", per_page: 25 } }
+    });
+    const defaultApplied = React.useRef(false);
+    React.useEffect(() => {
+      if (defaultApplied.current) return;
+      const tags = vrLookup?.data?.findTags?.tags;
+      if (!tags) return;
+      defaultApplied.current = true;
+      const vr = tags.find((t) => (t.name || "").toLowerCase() === "vr");
+      if (vr) setExcludeTagIds([vr.id]);
+    }, [vrLookup?.data]);
+    const tagCriterion = React.useMemo(() => {
+      const inc = tagIds;
+      const exc = excludeTagIds;
+      if (inc.length && exc.length)
+        return { value: inc, excludes: exc, modifier: "INCLUDES", depth: -1 };
+      if (inc.length) return { value: inc, modifier: "INCLUDES", depth: -1 };
+      if (exc.length) return { value: exc, modifier: "EXCLUDES", depth: -1 };
+      return void 0;
+    }, [tagIds, excludeTagIds]);
+    const fetchSort = sort === "random" ? "created_at" : sort;
     const scenesResult = PluginApi.GQL.useFindScenesQuery({
       variables: {
         filter: {
           q: q || void 0,
-          page: 1,
-          per_page: limit,
-          sort: sortParam(sort, seed),
+          per_page: -1,
+          sort: fetchSort,
           direction
         },
         scene_filter: {
@@ -311,9 +369,8 @@
       variables: {
         filter: {
           q: q || void 0,
-          page: 1,
-          per_page: limit,
-          sort: sortParam(sort, seed),
+          per_page: -1,
+          sort: fetchSort,
           direction
         },
         scene_marker_filter: tagCriterion ? { tags: tagCriterion } : {}
@@ -328,30 +385,27 @@
       () => makeComparator(sort, direction),
       [sort, direction]
     );
-    const merged = React.useMemo(() => {
-      const sceneItems = scenes.map((s) => ({ _kind: "scene", data: s }));
-      const markerItems = markers.map((m) => ({ _kind: "marker", data: m }));
-      if (sort === "random") return roundRobin(sceneItems, markerItems);
-      return [...sceneItems, ...markerItems].sort(comparator);
-    }, [scenes, markers, sort, comparator]);
-    const items = React.useMemo(() => merged.slice(0, limit), [merged, limit]);
-    const totalCount = sceneCount + markerCount;
-    const hasMore = merged.length > limit || scenes.length < sceneCount || markers.length < markerCount;
+    const ordered = React.useMemo(() => {
+      const all = [
+        ...scenes.map((s) => ({ _kind: "scene", data: s })),
+        ...markers.map((m) => ({ _kind: "marker", data: m }))
+      ];
+      if (sort === "random") {
+        return all.map((it) => ({ it, h: hash32(`${seed}:${it._kind}:${it.data.id}`) })).sort((a, b) => a.h - b.h).map((x) => x.it);
+      }
+      return all.sort(comparator);
+    }, [scenes, markers, sort, comparator, seed]);
+    const totalCount = ordered.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const items = React.useMemo(
+      () => ordered.slice(page * pageSize, page * pageSize + pageSize),
+      [ordered, page, pageSize]
+    );
     const loading = scenesResult?.loading || markersResult?.loading;
     const error = scenesResult?.error || markersResult?.error;
-    const sentinelRef = React.useRef(null);
     React.useEffect(() => {
-      if (!hasMore) return;
-      const el = sentinelRef.current;
-      if (!el) return;
-      const obs = new IntersectionObserver((entries) => {
-        if (entries.some((e) => e.isIntersecting) && !loading) {
-          setLimit((l) => l + pageSize);
-        }
-      });
-      obs.observe(el);
-      return () => obs.disconnect();
-    }, [hasMore, loading, pageSize]);
+      if (page > totalPages - 1) setPage(totalPages - 1);
+    }, [totalPages, page]);
     return /* @__PURE__ */ React.createElement("div", { className: "snm-page" }, /* @__PURE__ */ React.createElement("h3", { className: "snm-title" }, "Scenes & Markers"), /* @__PURE__ */ React.createElement(
       FilterBar,
       {
@@ -367,9 +421,11 @@
         setDedup,
         pageSize,
         setPageSize,
-        onShuffle: reshuffle
+        onShuffle: reshuffle,
+        excludeTagIds,
+        setExcludeTagIds
       }
-    ), /* @__PURE__ */ React.createElement("div", { className: "snm-counts" }, "Showing ", items.length, " of ", totalCount, " items \xB7 ", sceneCount, " scenes \xB7 ", markerCount, " markers"), error ? /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "Error loading: ", String(error.message || error)) : null, /* @__PURE__ */ React.createElement("div", { className: "row justify-content-center snm-grid", ref: gridRef }, items.map((item) => /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("div", { className: "snm-counts" }, "Page ", page + 1, " of ", totalPages, " \xB7 ", totalCount, " items (", sceneCount, " scenes, ", markerCount, " markers)"), /* @__PURE__ */ React.createElement(Pager, { page, totalPages, onPage: goToPage }), error ? /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "Error loading: ", String(error.message || error)) : null, /* @__PURE__ */ React.createElement("div", { className: "row justify-content-center snm-grid", ref: gridRef }, items.map((item) => /* @__PURE__ */ React.createElement(
       ItemCard,
       {
         key: `${item._kind}-${item.data.id}`,
@@ -377,7 +433,7 @@
         width: cardWidth,
         zoomIndex: ZOOM_INDEX
       }
-    ))), loading ? /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" })) : null, hasMore ? /* @__PURE__ */ React.createElement("div", { ref: sentinelRef, className: "snm-sentinel" }, /* @__PURE__ */ React.createElement(Button, { variant: "secondary", onClick: () => setLimit((l) => l + pageSize) }, "Load more")) : null);
+    ))), loading ? /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" })) : null, /* @__PURE__ */ React.createElement(Pager, { page, totalPages, onPage: goToPage }));
   }
   function Page() {
     const loadable = PluginApi.loadableComponents || {};

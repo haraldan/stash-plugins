@@ -21,8 +21,8 @@
 }
 
 .snm-tagselect {
-  min-width: 16rem;
-  flex: 1 1 16rem;
+  min-width: 12rem;
+  flex: 1 1 12rem;
 }
 
 .snm-sort {
@@ -56,17 +56,25 @@
   margin-bottom: 0.75rem;
 }
 
-.snm-loading,
-.snm-sentinel {
+.snm-loading {
   display: flex;
   justify-content: center;
   padding: 1.5rem 0;
 }
 
-/* Distinguish marker cards at a glance. SceneMarkerCard renders with the
-   .scene-marker-card class in Stash's own markup. */
-.snm-grid .scene-marker-card {
-  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.55);
+/* Pagination controls, top and bottom. */
+.snm-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+
+.snm-pageinfo {
+  padding: 0 0.75rem;
+  opacity: 0.85;
+  white-space: nowrap;
 }
 
 /* Fallback SimpleCard styling (only used when Stash components are absent). */
