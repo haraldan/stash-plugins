@@ -488,12 +488,30 @@ function CombinedGrid() {
 // SceneMarkerCard are registered in PluginApi.components.
 function Page() {
   const loadable = PluginApi.loadableComponents || {};
-  // Scenes chunk registers SceneCard + TagSelect; SceneMarkerList registers
-  // SceneMarkerCard (they live in separate lazy chunks).
-  const toLoad = [loadable.Scenes, loadable.SceneMarkerList].filter(Boolean);
-  const componentsReady = PluginApi.hooks?.useLoadComponents
-    ? PluginApi.hooks.useLoadComponents(toLoad)
-    : true;
+  const [ready, setReady] = React.useState(false);
+
+  // Trigger loading of the chunks that register SceneCard + TagSelect (Scenes)
+  // and SceneMarkerCard (SceneMarkerList). We drive readiness off the
+  // loadComponents promise rather than the useLoadComponents hook, whose "done"
+  // signal proved unreliable (it left the page spinning forever even though the
+  // components were already loaded). This promise resolves ~instantly.
+  React.useEffect(() => {
+    const toLoad = [loadable.Scenes, loadable.SceneMarkerList].filter(Boolean);
+    let alive = true;
+    const done = () => {
+      if (alive) setReady(true);
+    };
+    try {
+      const p = PluginApi.utils?.loadComponents?.(toLoad);
+      if (p && typeof p.then === "function") p.then(done, done);
+      else done();
+    } catch (e) {
+      done();
+    }
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   if (!gql || !useQuery) {
     return (
@@ -506,7 +524,12 @@ function Page() {
     );
   }
 
-  if (!componentsReady) {
+  // Render as soon as the components are loaded (or already present). The spinner
+  // only shows on a cold start before loadComponents resolves.
+  const componentsPresent = !!(
+    PluginApi.components?.SceneCard && PluginApi.components?.SceneMarkerCard
+  );
+  if (!ready && !componentsPresent) {
     return (
       <div className="snm-loading">
         <Spinner animation="border" role="status" />

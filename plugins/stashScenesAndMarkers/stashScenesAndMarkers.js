@@ -333,12 +333,29 @@
   }
   function Page() {
     const loadable = PluginApi.loadableComponents || {};
-    const toLoad = [loadable.Scenes, loadable.SceneMarkerList].filter(Boolean);
-    const componentsReady = PluginApi.hooks?.useLoadComponents ? PluginApi.hooks.useLoadComponents(toLoad) : true;
+    const [ready, setReady] = React.useState(false);
+    React.useEffect(() => {
+      const toLoad = [loadable.Scenes, loadable.SceneMarkerList].filter(Boolean);
+      let alive = true;
+      const done = () => {
+        if (alive) setReady(true);
+      };
+      try {
+        const p = PluginApi.utils?.loadComponents?.(toLoad);
+        if (p && typeof p.then === "function") p.then(done, done);
+        else done();
+      } catch (e) {
+        done();
+      }
+      return () => {
+        alive = false;
+      };
+    }, []);
     if (!gql || !useQuery) {
       return /* @__PURE__ */ React.createElement("div", { className: "snm-page" }, /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "This plugin requires Stash's Apollo library, which was not found on PluginApi.libraries. Your Stash version may be incompatible."));
     }
-    if (!componentsReady) {
+    const componentsPresent = !!(PluginApi.components?.SceneCard && PluginApi.components?.SceneMarkerCard);
+    if (!ready && !componentsPresent) {
       return /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" }));
     }
     return /* @__PURE__ */ React.createElement(CombinedGrid, null);
