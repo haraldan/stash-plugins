@@ -14,6 +14,8 @@ const React: any = PluginApi.React;
 const { NavLink } = PluginApi.libraries.ReactRouterDOM;
 const Bootstrap: any = PluginApi.libraries.Bootstrap;
 const { Nav, Form, Button, Spinner } = Bootstrap;
+const ReactFA: any = PluginApi.libraries.ReactFontAwesome;
+const FontAwesomeSolid: any = PluginApi.libraries.FontAwesomeSolid || {};
 const Apollo: any = PluginApi.libraries.Apollo || {};
 const gql: any = Apollo.gql;
 const useQuery: any = Apollo.useQuery;
@@ -545,15 +547,42 @@ function Page() {
 
 PluginApi.register.route(ROUTE, Page);
 
+// Nav item that mirrors Stash's own menu buttons: a `.minimal` Button (icon +
+// label, vertically centered, hover-highlighted) inside a column Nav.Link.
+// Markup/classes copied from Stash's MainNavbar menuItems mapping.
+function NavButton() {
+  const Icon = ReactFA?.FontAwesomeIcon;
+  const icon = FontAwesomeSolid.faLayerGroup;
+  return (
+    <Nav.Link
+      as="div"
+      eventKey={ROUTE}
+      className="col-4 col-sm-3 col-md-2 col-lg-auto"
+    >
+      <Button
+        as={NavLink}
+        to={ROUTE}
+        className="minimal p-4 p-xl-2 d-flex d-xl-inline-block flex-column justify-content-between align-items-center"
+      >
+        {Icon && icon ? (
+          <Icon
+            icon={icon}
+            className="nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0"
+          />
+        ) : null}
+        <span>Scenes+</span>
+      </Button>
+    </Nav.Link>
+  );
+}
+
 PluginApi.patch.before("MainNavBar.MenuItems", function (props: any) {
   return [
     {
       children: (
         <>
           {props.children}
-          <Nav.Link as={NavLink} to={ROUTE} className="snm-navlink">
-            Scenes+
-          </Nav.Link>
+          <NavButton />
         </>
       ),
     },

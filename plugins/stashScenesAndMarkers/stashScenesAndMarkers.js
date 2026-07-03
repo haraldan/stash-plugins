@@ -5,6 +5,8 @@
   var { NavLink } = PluginApi.libraries.ReactRouterDOM;
   var Bootstrap = PluginApi.libraries.Bootstrap;
   var { Nav, Form, Button, Spinner } = Bootstrap;
+  var ReactFA = PluginApi.libraries.ReactFontAwesome;
+  var FontAwesomeSolid = PluginApi.libraries.FontAwesomeSolid || {};
   var Apollo = PluginApi.libraries.Apollo || {};
   var gql = Apollo.gql;
   var useQuery = Apollo.useQuery;
@@ -361,10 +363,38 @@
     return /* @__PURE__ */ React.createElement(CombinedGrid, null);
   }
   PluginApi.register.route(ROUTE, Page);
+  function NavButton() {
+    const Icon = ReactFA?.FontAwesomeIcon;
+    const icon = FontAwesomeSolid.faLayerGroup;
+    return /* @__PURE__ */ React.createElement(
+      Nav.Link,
+      {
+        as: "div",
+        eventKey: ROUTE,
+        className: "col-4 col-sm-3 col-md-2 col-lg-auto"
+      },
+      /* @__PURE__ */ React.createElement(
+        Button,
+        {
+          as: NavLink,
+          to: ROUTE,
+          className: "minimal p-4 p-xl-2 d-flex d-xl-inline-block flex-column justify-content-between align-items-center"
+        },
+        Icon && icon ? /* @__PURE__ */ React.createElement(
+          Icon,
+          {
+            icon,
+            className: "nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0"
+          }
+        ) : null,
+        /* @__PURE__ */ React.createElement("span", null, "Scenes+")
+      )
+    );
+  }
   PluginApi.patch.before("MainNavBar.MenuItems", function(props) {
     return [
       {
-        children: /* @__PURE__ */ React.createElement(React.Fragment, null, props.children, /* @__PURE__ */ React.createElement(Nav.Link, { as: NavLink, to: ROUTE, className: "snm-navlink" }, "Scenes+"))
+        children: /* @__PURE__ */ React.createElement(React.Fragment, null, props.children, /* @__PURE__ */ React.createElement(NavButton, null))
       }
     ];
   });
