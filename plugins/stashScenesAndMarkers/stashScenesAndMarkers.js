@@ -72,6 +72,16 @@
     }
   }
 `;
+  var FIND_ALL_PERFORMERS = gql && gql`
+  query SnMFindAllPerformers($filter: FindFilterType) {
+    findPerformers(filter: $filter) {
+      performers {
+        id
+        name
+      }
+    }
+  }
+`;
   function useDebounced(value, ms) {
     const [v, setV] = React.useState(value);
     React.useEffect(() => {
@@ -157,7 +167,7 @@
     );
   }
   function FilterBar(props) {
-    const { search, setSearch, tagIds, setTagIds, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds } = props;
+    const { search, setSearch, tagIds, setTagIds, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds, performerIds, setPerformerIds } = props;
     const tagsResult = PluginApi.GQL?.useFindTagsQuery ? PluginApi.GQL.useFindTagsQuery({
       variables: { filter: { per_page: 1e3, sort: "name", direction: "ASC" } }
     }) : useQuery(FIND_ALL_TAGS, {
@@ -174,6 +184,17 @@
     const selectedExcludeOptions = React.useMemo(
       () => tagOptions.filter((o) => excludeTagIds.includes(o.value)),
       [tagOptions, excludeTagIds]
+    );
+    const performersResult = useQuery(FIND_ALL_PERFORMERS, {
+      variables: { filter: { per_page: 1e3, sort: "name", direction: "ASC" } }
+    });
+    const performerOptions = React.useMemo(() => {
+      const ps = performersResult?.data?.findPerformers?.performers ?? [];
+      return ps.map((p) => ({ value: p.id, label: p.name }));
+    }, [performersResult?.data]);
+    const selectedPerformerOptions = React.useMemo(
+      () => performerOptions.filter((o) => performerIds.includes(o.value)),
+      [performerOptions, performerIds]
     );
     return /* @__PURE__ */ React.createElement("div", { className: "snm-filterbar" }, /* @__PURE__ */ React.createElement(
       Form.Control,
@@ -207,6 +228,18 @@
         options: tagOptions,
         value: selectedExcludeOptions,
         onChange: (vals) => setExcludeTagIds((vals || []).map((v) => v.value))
+      }
+    ) : null), /* @__PURE__ */ React.createElement("div", { className: "snm-tagselect snm-performerselect" }, ReactSelect ? /* @__PURE__ */ React.createElement(
+      ReactSelect,
+      {
+        isMulti: true,
+        placeholder: "Performers\u2026",
+        classNamePrefix: "react-select",
+        menuPortalTarget: typeof document !== "undefined" ? document.body : null,
+        styles: { menuPortal: (base) => ({ ...base, zIndex: 9999 }) },
+        options: performerOptions,
+        value: selectedPerformerOptions,
+        onChange: (vals) => setPerformerIds((vals || []).map((v) => v.value))
       }
     ) : null), /* @__PURE__ */ React.createElement(
       Button,
@@ -265,6 +298,7 @@
   function CombinedGrid() {
     const [search, setSearch] = React.useState("");
     const [tagIds, setTagIds] = React.useState([]);
+    const [performerIds, setPerformerIds] = React.useState([]);
     const [dedup, setDedup] = React.useState(true);
     const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
     const [page, setPage] = React.useState(0);
@@ -287,7 +321,7 @@
     }, []);
     React.useEffect(() => {
       setPage(0);
-    }, [q, tagIds, excludeTagIds, dedup, pageSize, seed]);
+    }, [q, tagIds, excludeTagIds, performerIds, dedup, pageSize, seed]);
     const vrLookup = PluginApi.GQL.useFindTagsQuery({
       variables: { filter: { q: "VR", per_page: 25 } }
     });
@@ -304,11 +338,15 @@
       const inc = tagIds;
       const exc = excludeTagIds;
       if (inc.length && exc.length)
-        return { value: inc, excludes: exc, modifier: "INCLUDES", depth: -1 };
-      if (inc.length) return { value: inc, modifier: "INCLUDES", depth: -1 };
+        return { value: inc, excludes: exc, modifier: "INCLUDES_ALL", depth: -1 };
+      if (inc.length) return { value: inc, modifier: "INCLUDES_ALL", depth: -1 };
       if (exc.length) return { value: exc, modifier: "EXCLUDES", depth: -1 };
       return void 0;
     }, [tagIds, excludeTagIds]);
+    const performerCriterion = React.useMemo(
+      () => performerIds.length ? { value: performerIds, modifier: "INCLUDES_ALL" } : void 0,
+      [performerIds]
+    );
     const knownTotal = counts.s + counts.m;
     let scenesPerPage;
     let markersPerPage;
@@ -339,6 +377,7 @@
         },
         scene_filter: {
           ...tagCriterion ? { tags: tagCriterion } : {},
+          ...performerCriterion ? { performers: performerCriterion } : {},
           ...dedup ? { has_markers: "false" } : {}
         }
       },
@@ -352,7 +391,10 @@
           per_page: Math.max(1, markersPerPage),
           sort: randomSort
         },
-        scene_marker_filter: tagCriterion ? { tags: tagCriterion } : {}
+        scene_marker_filter: {
+          ...tagCriterion ? { tags: tagCriterion } : {},
+          ...performerCriterion ? { performers: performerCriterion } : {}
+        }
       },
       fetchPolicy: "cache-and-network"
     });
@@ -397,6 +439,8 @@
         setSearch,
         tagIds,
         setTagIds,
+        performerIds,
+        setPerformerIds,
         dedup,
         setDedup,
         pageSize,

@@ -95,6 +95,17 @@ const FIND_ALL_TAGS = gql && gql`
   }
 `;
 
+const FIND_ALL_PERFORMERS = gql && gql`
+  query SnMFindAllPerformers($filter: FindFilterType) {
+    findPerformers(filter: $filter) {
+      performers {
+        id
+        name
+      }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -228,7 +239,7 @@ function ItemCard({ item, width, zoomIndex }: any) {
 // ---------------------------------------------------------------------------
 
 function FilterBar(props: any) {
-  const { search, setSearch, tagIds, setTagIds, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds } = props;
+  const { search, setSearch, tagIds, setTagIds, dedup, setDedup, pageSize, setPageSize, onShuffle, excludeTagIds, setExcludeTagIds, performerIds, setPerformerIds } = props;
 
   // Load all tags once for the selector (personal-library scale).
   const tagsResult = PluginApi.GQL?.useFindTagsQuery
@@ -252,6 +263,21 @@ function FilterBar(props: any) {
   const selectedExcludeOptions = React.useMemo(
     () => tagOptions.filter((o: any) => excludeTagIds.includes(o.value)),
     [tagOptions, excludeTagIds]
+  );
+
+  // Load performers for the selector (lightweight id+name query).
+  const performersResult = useQuery(FIND_ALL_PERFORMERS, {
+    variables: { filter: { per_page: 1000, sort: "name", direction: "ASC" } },
+  });
+
+  const performerOptions = React.useMemo(() => {
+    const ps = performersResult?.data?.findPerformers?.performers ?? [];
+    return ps.map((p: any) => ({ value: p.id, label: p.name }));
+  }, [performersResult?.data]);
+
+  const selectedPerformerOptions = React.useMemo(
+    () => performerOptions.filter((o: any) => performerIds.includes(o.value)),
+    [performerOptions, performerIds]
   );
 
   return (
@@ -293,6 +319,23 @@ function FilterBar(props: any) {
             value={selectedExcludeOptions}
             onChange={(vals: any) =>
               setExcludeTagIds((vals || []).map((v: any) => v.value))
+            }
+          />
+        ) : null}
+      </div>
+
+      <div className="snm-tagselect snm-performerselect">
+        {ReactSelect ? (
+          <ReactSelect
+            isMulti
+            placeholder="Performers…"
+            classNamePrefix="react-select"
+            menuPortalTarget={typeof document !== "undefined" ? document.body : null}
+            styles={{ menuPortal: (base: any) => ({ ...base, zIndex: 9999 }) }}
+            options={performerOptions}
+            value={selectedPerformerOptions}
+            onChange={(vals: any) =>
+              setPerformerIds((vals || []).map((v: any) => v.value))
             }
           />
         ) : null}
@@ -378,6 +421,7 @@ function Pager({ page, totalPages, onPage }: any) {
 function CombinedGrid() {
   const [search, setSearch] = React.useState("");
   const [tagIds, setTagIds] = React.useState<string[]>([]);
+  const [performerIds, setPerformerIds] = React.useState<string[]>([]);
   const [dedup, setDedup] = React.useState(true);
   const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
   const [page, setPage] = React.useState(0);
@@ -411,7 +455,7 @@ function CombinedGrid() {
   // Return to page 1 whenever the query shape or page size changes.
   React.useEffect(() => {
     setPage(0);
-  }, [q, tagIds, excludeTagIds, dedup, pageSize, seed]);
+  }, [q, tagIds, excludeTagIds, performerIds, dedup, pageSize, seed]);
 
   // Default: exclude the "VR" tag on first load (once). Looks up the tag id by
   // name; if there's no VR tag, nothing is excluded.
@@ -435,12 +479,23 @@ function CombinedGrid() {
   const tagCriterion = React.useMemo(() => {
     const inc = tagIds;
     const exc = excludeTagIds;
+    // INCLUDES_ALL = item must have every selected include tag (AND).
     if (inc.length && exc.length)
-      return { value: inc, excludes: exc, modifier: "INCLUDES", depth: -1 };
-    if (inc.length) return { value: inc, modifier: "INCLUDES", depth: -1 };
+      return { value: inc, excludes: exc, modifier: "INCLUDES_ALL", depth: -1 };
+    if (inc.length) return { value: inc, modifier: "INCLUDES_ALL", depth: -1 };
     if (exc.length) return { value: exc, modifier: "EXCLUDES", depth: -1 };
     return undefined;
   }, [tagIds, excludeTagIds]);
+
+  // Include-only performer filter → MultiCriterionInput. Applies to scenes and
+  // to markers (which inherit their parent scene's performers).
+  const performerCriterion = React.useMemo(
+    () =>
+      performerIds.length
+        ? { value: performerIds, modifier: "INCLUDES_ALL" }
+        : undefined,
+    [performerIds]
+  );
 
   // Split each combined page proportionally between scenes and markers so a
   // page holds ~pageSize items and successive pages continue from each stream's
@@ -480,6 +535,7 @@ function CombinedGrid() {
       },
       scene_filter: {
         ...(tagCriterion ? { tags: tagCriterion } : {}),
+        ...(performerCriterion ? { performers: performerCriterion } : {}),
         ...(dedup ? { has_markers: "false" } : {}),
       },
     },
@@ -494,7 +550,10 @@ function CombinedGrid() {
         per_page: Math.max(1, markersPerPage),
         sort: randomSort,
       },
-      scene_marker_filter: tagCriterion ? { tags: tagCriterion } : {},
+      scene_marker_filter: {
+        ...(tagCriterion ? { tags: tagCriterion } : {}),
+        ...(performerCriterion ? { performers: performerCriterion } : {}),
+      },
     },
     fetchPolicy: "cache-and-network",
   });
@@ -560,6 +619,8 @@ function CombinedGrid() {
         setSearch={setSearch}
         tagIds={tagIds}
         setTagIds={setTagIds}
+        performerIds={performerIds}
+        setPerformerIds={setPerformerIds}
         dedup={dedup}
         setDedup={setDedup}
         pageSize={pageSize}

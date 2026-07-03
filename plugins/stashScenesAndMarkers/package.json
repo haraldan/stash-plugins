@@ -1,6 +1,6 @@
 {
   "name": "stash-scenes-and-markers",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "description": "Stash UI plugin: unified scenes + scene markers grid",
   "scripts": {
