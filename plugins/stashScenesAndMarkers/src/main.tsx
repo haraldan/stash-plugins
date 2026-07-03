@@ -743,10 +743,10 @@ function NavButton() {
         {Icon && icon ? (
           <Icon
             icon={icon}
-            className="nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0"
+            className="nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0 mr-xl-2 me-xl-2"
           />
         ) : null}
-        <span> Scenes+</span>
+        <span>Scenes+</span>
       </Button>
     </Nav.Link>
   );
