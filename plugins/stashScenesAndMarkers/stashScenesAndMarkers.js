@@ -5,12 +5,14 @@
   var { NavLink } = PluginApi.libraries.ReactRouterDOM;
   var Bootstrap = PluginApi.libraries.Bootstrap;
   var { Nav, Form, Button, Spinner } = Bootstrap;
-  var Apollo = PluginApi.libraries.Apollo;
-  var { gql, useQuery } = Apollo;
+  var Apollo = PluginApi.libraries.Apollo || {};
+  var gql = Apollo.gql;
+  var useQuery = Apollo.useQuery;
   var ReactSelect = PluginApi.libraries.ReactSelect?.default ?? PluginApi.libraries.ReactSelect;
   var ROUTE = "/plugin/scenes-and-markers";
-  var PAGE_SIZE = 40;
-  var FIND_ALL_MARKERS = gql`
+  var DEFAULT_PAGE_SIZE = 100;
+  var PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500];
+  var FIND_ALL_MARKERS = gql && gql`
   query SnMFindAllMarkers(
     $filter: FindFilterType
     $scene_marker_filter: SceneMarkerFilterType
@@ -58,7 +60,7 @@
     }
   }
 `;
-  var FIND_ALL_TAGS = gql`
+  var FIND_ALL_TAGS = gql && gql`
   query SnMFindAllTags($filter: FindFilterType) {
     findTags(filter: $filter) {
       tags {
@@ -137,7 +139,7 @@
     );
   }
   function FilterBar(props) {
-    const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup } = props;
+    const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize } = props;
     const tagsResult = PluginApi.GQL?.useFindTagsQuery ? PluginApi.GQL.useFindTagsQuery({
       variables: { filter: { per_page: -1, sort: "name", direction: "ASC" } }
     }) : useQuery(FIND_ALL_TAGS, {
@@ -191,6 +193,16 @@
       },
       direction === "ASC" ? "\u2191" : "\u2193"
     ), /* @__PURE__ */ React.createElement(
+      Form.Control,
+      {
+        as: "select",
+        className: "snm-perpage",
+        value: pageSize,
+        onChange: (e) => setPageSize(Number(e.target.value)),
+        title: "Items per page"
+      },
+      PAGE_SIZE_OPTIONS.map((n) => /* @__PURE__ */ React.createElement("option", { key: n, value: n }, n, " / page"))
+    ), /* @__PURE__ */ React.createElement(
       Form.Check,
       {
         type: "switch",
@@ -208,11 +220,12 @@
     const [sort, setSort] = React.useState("date");
     const [direction, setDirection] = React.useState("DESC");
     const [dedup, setDedup] = React.useState(true);
-    const [limit, setLimit] = React.useState(PAGE_SIZE);
+    const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
+    const [limit, setLimit] = React.useState(DEFAULT_PAGE_SIZE);
     const q = useDebounced(search, 300);
     React.useEffect(() => {
-      setLimit(PAGE_SIZE);
-    }, [q, tagIds, sort, direction, dedup]);
+      setLimit(pageSize);
+    }, [q, tagIds, sort, direction, dedup, pageSize]);
     const tagCriterion = tagIds.length > 0 ? { value: tagIds, modifier: "INCLUDES", depth: -1 } : void 0;
     const scenesResult = PluginApi.GQL.useFindScenesQuery({
       variables: {
@@ -245,20 +258,14 @@
       () => makeComparator(sort, direction),
       [sort, direction]
     );
-    const items = React.useMemo(() => {
+    const merged = React.useMemo(() => {
       const sceneItems = scenes.map((s) => ({ _kind: "scene", data: s }));
-      let markerItems = markers.map((m) => ({ _kind: "marker", data: m }));
-      markerItems.sort(comparator);
-      const hasMoreScenes = scenes.length < sceneCount;
-      if (hasMoreScenes && sceneItems.length > 0) {
-        const frontier = sceneItems[sceneItems.length - 1];
-        markerItems = markerItems.filter(
-          (m) => comparator(m, frontier) <= 0
-        );
-      }
+      const markerItems = markers.map((m) => ({ _kind: "marker", data: m }));
       return [...sceneItems, ...markerItems].sort(comparator);
-    }, [scenes, markers, sceneCount, comparator]);
-    const hasMore = scenes.length < sceneCount;
+    }, [scenes, markers, comparator]);
+    const items = React.useMemo(() => merged.slice(0, limit), [merged, limit]);
+    const totalCount = sceneCount + markerCount;
+    const hasMore = merged.length > limit || scenes.length < sceneCount;
     const loading = scenesResult?.loading || markersResult?.loading;
     const error = scenesResult?.error || markersResult?.error;
     const sentinelRef = React.useRef(null);
@@ -268,12 +275,12 @@
       if (!el) return;
       const obs = new IntersectionObserver((entries) => {
         if (entries.some((e) => e.isIntersecting) && !loading) {
-          setLimit((l) => l + PAGE_SIZE);
+          setLimit((l) => l + pageSize);
         }
       });
       obs.observe(el);
       return () => obs.disconnect();
-    }, [hasMore, loading]);
+    }, [hasMore, loading, pageSize]);
     return /* @__PURE__ */ React.createElement("div", { className: "snm-page" }, /* @__PURE__ */ React.createElement("h3", { className: "snm-title" }, "Scenes & Markers"), /* @__PURE__ */ React.createElement(
       FilterBar,
       {
@@ -286,14 +293,19 @@
         direction,
         setDirection,
         dedup,
-        setDedup
+        setDedup,
+        pageSize,
+        setPageSize
       }
-    ), /* @__PURE__ */ React.createElement("div", { className: "snm-counts" }, scenes.length, " of ", sceneCount, " scenes \xB7 ", markerCount, " markers"), error ? /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "Error loading: ", String(error.message || error)) : null, /* @__PURE__ */ React.createElement("div", { className: "row justify-content-center snm-grid" }, items.map((item) => /* @__PURE__ */ React.createElement(ItemCard, { key: `${item._kind}-${item.data.id}`, item }))), loading ? /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" })) : null, hasMore ? /* @__PURE__ */ React.createElement("div", { ref: sentinelRef, className: "snm-sentinel" }, /* @__PURE__ */ React.createElement(Button, { variant: "secondary", onClick: () => setLimit((l) => l + PAGE_SIZE) }, "Load more")) : null);
+    ), /* @__PURE__ */ React.createElement("div", { className: "snm-counts" }, "Showing ", items.length, " of ", totalCount, " items \xB7 ", sceneCount, " scenes \xB7 ", markerCount, " markers"), error ? /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "Error loading: ", String(error.message || error)) : null, /* @__PURE__ */ React.createElement("div", { className: "row justify-content-center snm-grid" }, items.map((item) => /* @__PURE__ */ React.createElement(ItemCard, { key: `${item._kind}-${item.data.id}`, item }))), loading ? /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" })) : null, hasMore ? /* @__PURE__ */ React.createElement("div", { ref: sentinelRef, className: "snm-sentinel" }, /* @__PURE__ */ React.createElement(Button, { variant: "secondary", onClick: () => setLimit((l) => l + pageSize) }, "Load more")) : null);
   }
   function Page() {
     const loadable = PluginApi.loadableComponents || {};
-    const toLoad = [loadable.Scenes].filter(Boolean);
+    const toLoad = [loadable.Scenes, loadable.SceneMarkerList].filter(Boolean);
     const componentsReady = PluginApi.hooks?.useLoadComponents ? PluginApi.hooks.useLoadComponents(toLoad) : true;
+    if (!gql || !useQuery) {
+      return /* @__PURE__ */ React.createElement("div", { className: "snm-page" }, /* @__PURE__ */ React.createElement("div", { className: "snm-error" }, "This plugin requires Stash's Apollo library, which was not found on PluginApi.libraries. Your Stash version may be incompatible."));
+    }
     if (!componentsReady) {
       return /* @__PURE__ */ React.createElement("div", { className: "snm-loading" }, /* @__PURE__ */ React.createElement(Spinner, { animation: "border", role: "status" }));
     }

@@ -29,6 +29,10 @@
   max-width: 9rem;
 }
 
+.snm-perpage {
+  max-width: 8rem;
+}
+
 .snm-dir {
   min-width: 2.5rem;
 }

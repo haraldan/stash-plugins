@@ -14,14 +14,16 @@ const React: any = PluginApi.React;
 const { NavLink } = PluginApi.libraries.ReactRouterDOM;
 const Bootstrap: any = PluginApi.libraries.Bootstrap;
 const { Nav, Form, Button, Spinner } = Bootstrap;
-const Apollo: any = PluginApi.libraries.Apollo;
-const { gql, useQuery } = Apollo;
+const Apollo: any = PluginApi.libraries.Apollo || {};
+const gql: any = Apollo.gql;
+const useQuery: any = Apollo.useQuery;
 // react-select's Select component may be the module default or the module itself.
 const ReactSelect: any =
   PluginApi.libraries.ReactSelect?.default ?? PluginApi.libraries.ReactSelect;
 
 const ROUTE = "/plugin/scenes-and-markers";
-const PAGE_SIZE = 40;
+const DEFAULT_PAGE_SIZE = 100;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500];
 
 // ---------------------------------------------------------------------------
 // GraphQL
@@ -31,7 +33,7 @@ const PAGE_SIZE = 40;
 // sort/merge them client-side, because the server cannot sort markers by their
 // parent scene's date. Fields mirror v0.31.1's SceneMarkerData fragment plus
 // the parent scene's date/created_at needed for client-side sorting.
-const FIND_ALL_MARKERS = gql`
+const FIND_ALL_MARKERS = gql && gql`
   query SnMFindAllMarkers(
     $filter: FindFilterType
     $scene_marker_filter: SceneMarkerFilterType
@@ -80,7 +82,7 @@ const FIND_ALL_MARKERS = gql`
   }
 `;
 
-const FIND_ALL_TAGS = gql`
+const FIND_ALL_TAGS = gql && gql`
   query SnMFindAllTags($filter: FindFilterType) {
     findTags(filter: $filter) {
       tags {
@@ -196,7 +198,7 @@ function ItemCard({ item }: any) {
 // ---------------------------------------------------------------------------
 
 function FilterBar(props: any) {
-  const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup } = props;
+  const { search, setSearch, tagIds, setTagIds, sort, setSort, direction, setDirection, dedup, setDedup, pageSize, setPageSize } = props;
 
   // Load all tags once for the selector (personal-library scale).
   const tagsResult = PluginApi.GQL?.useFindTagsQuery
@@ -262,6 +264,20 @@ function FilterBar(props: any) {
         {direction === "ASC" ? "↑" : "↓"}
       </Button>
 
+      <Form.Control
+        as="select"
+        className="snm-perpage"
+        value={pageSize}
+        onChange={(e: any) => setPageSize(Number(e.target.value))}
+        title="Items per page"
+      >
+        {PAGE_SIZE_OPTIONS.map((n: number) => (
+          <option key={n} value={n}>
+            {n} / page
+          </option>
+        ))}
+      </Form.Control>
+
       <Form.Check
         type="switch"
         id="snm-dedup"
@@ -284,14 +300,16 @@ function CombinedGrid() {
   const [sort, setSort] = React.useState("date");
   const [direction, setDirection] = React.useState<"ASC" | "DESC">("DESC");
   const [dedup, setDedup] = React.useState(true);
-  const [limit, setLimit] = React.useState(PAGE_SIZE);
+  const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
+  // How many merged items to display. Starts at one page and grows on demand.
+  const [limit, setLimit] = React.useState(DEFAULT_PAGE_SIZE);
 
   const q = useDebounced(search, 300);
 
-  // Reset the scene window whenever the query shape changes.
+  // Reset the display window whenever the query shape or page size changes.
   React.useEffect(() => {
-    setLimit(PAGE_SIZE);
-  }, [q, tagIds, sort, direction, dedup]);
+    setLimit(pageSize);
+  }, [q, tagIds, sort, direction, dedup, pageSize]);
 
   const tagCriterion =
     tagIds.length > 0
@@ -335,25 +353,21 @@ function CombinedGrid() {
     [sort, direction]
   );
 
-  const items = React.useMemo(() => {
+  // All loaded items, globally sorted. We request `limit` scenes and all
+  // markers, so the first `limit` of this sorted list are guaranteed to be the
+  // true first `limit` items (any unloaded scene sorts after every loaded one,
+  // and removing markers can only lower a scene's rank — so every item that
+  // belongs in the top `limit` is already loaded).
+  const merged = React.useMemo(() => {
     const sceneItems = scenes.map((s: any) => ({ _kind: "scene", data: s }));
-    let markerItems = markers.map((m: any) => ({ _kind: "marker", data: m }));
-    markerItems.sort(comparator);
-
-    const hasMoreScenes = scenes.length < sceneCount;
-    if (hasMoreScenes && sceneItems.length > 0) {
-      // Only emit markers that sort at or before the last loaded scene, so an
-      // as-yet-unloaded scene can never appear out of order between them.
-      const frontier = sceneItems[sceneItems.length - 1];
-      markerItems = markerItems.filter(
-        (m: any) => comparator(m, frontier) <= 0
-      );
-    }
-
+    const markerItems = markers.map((m: any) => ({ _kind: "marker", data: m }));
     return [...sceneItems, ...markerItems].sort(comparator);
-  }, [scenes, markers, sceneCount, comparator]);
+  }, [scenes, markers, comparator]);
 
-  const hasMore = scenes.length < sceneCount;
+  const items = React.useMemo(() => merged.slice(0, limit), [merged, limit]);
+
+  const totalCount = sceneCount + markerCount;
+  const hasMore = merged.length > limit || scenes.length < sceneCount;
   const loading = scenesResult?.loading || markersResult?.loading;
   const error = scenesResult?.error || markersResult?.error;
 
@@ -365,12 +379,12 @@ function CombinedGrid() {
     if (!el) return;
     const obs = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting) && !loading) {
-        setLimit((l: number) => l + PAGE_SIZE);
+        setLimit((l: number) => l + pageSize);
       }
     });
     obs.observe(el);
     return () => obs.disconnect();
-  }, [hasMore, loading]);
+  }, [hasMore, loading, pageSize]);
 
   return (
     <div className="snm-page">
@@ -387,10 +401,12 @@ function CombinedGrid() {
         setDirection={setDirection}
         dedup={dedup}
         setDedup={setDedup}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
       />
 
       <div className="snm-counts">
-        {scenes.length} of {sceneCount} scenes · {markerCount} markers
+        Showing {items.length} of {totalCount} items · {sceneCount} scenes · {markerCount} markers
       </div>
 
       {error ? (
@@ -411,7 +427,7 @@ function CombinedGrid() {
 
       {hasMore ? (
         <div ref={sentinelRef} className="snm-sentinel">
-          <Button variant="secondary" onClick={() => setLimit((l: number) => l + PAGE_SIZE)}>
+          <Button variant="secondary" onClick={() => setLimit((l: number) => l + pageSize)}>
             Load more
           </Button>
         </div>
@@ -424,10 +440,23 @@ function CombinedGrid() {
 // SceneMarkerCard are registered in PluginApi.components.
 function Page() {
   const loadable = PluginApi.loadableComponents || {};
-  const toLoad = [loadable.Scenes].filter(Boolean);
+  // Scenes chunk registers SceneCard + TagSelect; SceneMarkerList registers
+  // SceneMarkerCard (they live in separate lazy chunks).
+  const toLoad = [loadable.Scenes, loadable.SceneMarkerList].filter(Boolean);
   const componentsReady = PluginApi.hooks?.useLoadComponents
     ? PluginApi.hooks.useLoadComponents(toLoad)
     : true;
+
+  if (!gql || !useQuery) {
+    return (
+      <div className="snm-page">
+        <div className="snm-error">
+          This plugin requires Stash's Apollo library, which was not found on
+          PluginApi.libraries. Your Stash version may be incompatible.
+        </div>
+      </div>
+    );
+  }
 
   if (!componentsReady) {
     return (
