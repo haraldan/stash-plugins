@@ -510,10 +510,10 @@
           Icon,
           {
             icon,
-            className: "nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0 mr-xl-2 me-xl-2"
+            className: "nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0 mr-xl-1 me-xl-1"
           }
         ) : null,
-        /* @__PURE__ */ React.createElement("span", null, " Scenes+")
+        /* @__PURE__ */ React.createElement("span", null, "Scenes+")
       )
     );
   }
