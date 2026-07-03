@@ -1,6 +1,6 @@
 name: Stash Scenes and Markers
 description: Adds a page showing scenes and scene markers together in one unified card grid.
-version: 0.6.0
+version: 0.6.1
 url: https://github.com/haraldan/stash-plugins#stash-scenes-and-markers
 ui:
   javascript:

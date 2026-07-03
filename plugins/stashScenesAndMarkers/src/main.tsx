@@ -746,7 +746,7 @@ function NavButton() {
             className="nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0"
           />
         ) : null}
-        <span>Scenes+</span>
+        <span> Scenes+</span>
       </Button>
     </Nav.Link>
   );
