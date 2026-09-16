@@ -1,14 +1,45 @@
 /* Stash Open In Player */
 
-/* Injected into the stock .card-popovers ButtonGroup, so sizing is inherited
-   from Stash's own popover buttons. Only the hover tint is ours. */
+/* Bootstrap applies `flex: 1 1 auto` to a direct .btn child of .btn-group, so
+   this button stretched to fill the row. The stock popover buttons are each
+   wrapped in a HoverPopover div and so were never direct children, which is why
+   only ours grew.
+
+   Taking the button out of flow entirely (rather than just un-flexing it) keeps
+   the stock buttons centered exactly as they were: they lay out as if this
+   button were not in the row at all. */
+.scene-card .card-popovers {
+  position: relative;
+}
+
+.scene-card .card-popovers .open-in-player-button {
+  flex: 0 0 auto;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 2.25rem;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+}
+
+/* Stash spaces popover icons from their adjacent count labels; this button has
+   no label, so centre the icon in its fixed width instead. */
+.scene-card .open-in-player-button .fa-icon {
+  margin-right: 0;
+}
+
 .scene-card .open-in-player-button:hover {
   color: #fff;
 }
 
-/* Fallback row, used on scenes that have no tags/performers/etc. and so render
-   no stock popover row. Mirrors the native row's spacing. */
+/* Fallback row, used on scenes with no tags/performers/etc., where Stash
+   renders no popover row of its own. The button is alone there, so leave it in
+   flow - absolute positioning would collapse the row to zero height. */
 .scene-card .card-popovers.open-in-player-fallback {
-  justify-content: center;
-  width: 100%;
+  justify-content: flex-end;
+}
+
+.scene-card .card-popovers.open-in-player-fallback .open-in-player-button {
+  position: static;
 }

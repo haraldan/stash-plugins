@@ -1,6 +1,6 @@
 name: Stash Open In Player
 description: Adds a button to each scene card that opens the scene's file in a local video player.
-version: 0.1.1
+version: 0.1.2
 url: https://github.com/haraldan/stash-plugins#stash-open-in-player
 settings:
   pathFrom:
