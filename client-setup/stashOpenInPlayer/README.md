@@ -14,9 +14,15 @@ asks for your confirmation before handing the URL to Windows.
 ## Install
 
 1. Copy `stashplay.ps1` somewhere permanent, e.g. `C:\Tools\stashplay.ps1`.
-2. Open `stashplay.reg` in a text editor and change the path on the last line to
-   wherever you put the script. Backslashes must be doubled (`C:\\Tools\\...`).
-3. Double-click `stashplay.reg` and accept the import. It writes under
+2. Open `stashplay.reg` in a text editor and change the script path in the
+   `shell\open\command` line to wherever you put the script. Backslashes must be
+   doubled (`C:\\Tools\\...`). Replace only the path between the existing `\"`
+   quotes. Don't add quotes of your own, or regedit skips the line without an
+   error.
+3. If you use Brave, also change the Stash address in the policy at the end of
+   the file (see [No "Always allow" option](#no-always-allow-option)). Otherwise
+   delete that section.
+4. Double-click `stashplay.reg` and accept the import. It writes under
    `HKEY_CURRENT_USER`, so no administrator rights are needed.
 
 ## Configure the plugin
@@ -34,8 +40,27 @@ Then hard-refresh the Stash tab.
 
 ## First click
 
-The browser will ask *"Open Windows PowerShell?"* the first time. Tick **Always
+The browser will ask whether to open the link (it may name *Console Window Host*,
+the program that starts PowerShell without a window) the first time. Tick **Always
 allow** and confirm; it won't ask again.
+
+### No "Always allow" option
+
+Chromium-based browsers (Chrome, Edge, Brave) only offer **Always allow** when
+Stash is served over HTTPS or from `localhost`. If you reach Stash over plain
+`http://` on the LAN, they ask on every click.
+
+`stashplay.reg` handles this for Brave with the `AutoLaunchProtocolsFromOrigins`
+policy, which allows the scheme from your Stash address without the prompt. It is
+set per user, so no administrator rights are needed. Set `allowed_origins` to the
+exact origin you open Stash at: scheme, host and port, no trailing slash. For
+Chrome or Edge, change the key to `Software\Policies\Google\Chrome` or
+`Software\Policies\Microsoft\Edge`.
+
+Restart the browser, or open `brave://policy` (`chrome://policy`, `edge://policy`)
+and click **Reload policies**. The policy should be listed there with status OK.
+The browser will also show "Managed by your organization" in its menu. That's
+expected for any policy and does not change anything else.
 
 ## Troubleshooting
 
@@ -53,7 +78,9 @@ notepad %TEMP%\stashplay.log
 Almost always the path to `stashplay.ps1` in the `.reg` does not match where you
 actually put the file. Open `regedit`, check
 `HKEY_CURRENT_USER\Software\Classes\stashplay\shell\open\command`, and confirm the
-path in it exists.
+path in it exists. If that key has no value at all, the command line in the
+`.reg` has broken quoting (usually extra quotes around the script path) and
+regedit skipped it. Fix the line and import again.
 
 **`ERROR: path does not exist on this PC`.** The handler ran and decoded a path,
 but that path is wrong for this machine. The log line above it shows exactly
@@ -66,9 +93,14 @@ with that file extension. Double-click the file in Explorer: if Windows asks you
 to choose a program, that is the problem. Either set a default for the extension,
 or pin a specific player (see below).
 
-**Still nothing.** Import `stashplay-debug.reg` (after editing its script path
-the same way) and click the button again. It keeps the PowerShell window open so
-you can read the error directly. Re-import `stashplay.reg` afterwards.
+**Still nothing.** Run the handler in a PowerShell window so you can see its
+errors directly. Take the URL from an `--- invoked with:` line in the log, or
+build one as shown in [Testing the handler without Stash](#testing-the-handler-without-stash),
+and run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Tools\stashplay.ps1 "stashplay://open/..."
+```
 
 ### Testing the handler without Stash
 
