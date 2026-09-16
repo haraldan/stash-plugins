@@ -1,0 +1,26 @@
+name: Stash Open In Player
+description: Adds a button to each scene card that opens the scene's file in a local video player.
+version: 0.1.0
+url: https://github.com/haraldan/stash-plugins#stash-open-in-player
+settings:
+  pathFrom:
+    displayName: Path prefix (server)
+    description: Leading part of the path as Stash stores it, e.g. /data/media/
+    type: STRING
+  pathTo:
+    displayName: Path prefix (client)
+    description: What to replace it with on the client PC, e.g. Z:\media\
+    type: STRING
+  toBackslashes:
+    displayName: Convert / to \
+    description: Convert forward slashes to backslashes after the prefix rewrite. Leave on for Windows clients.
+    type: BOOLEAN
+  scheme:
+    displayName: URL scheme
+    description: 'Custom protocol registered on the client PC. Default: stashplay'
+    type: STRING
+ui:
+  javascript:
+    - stashOpenInPlayer.js
+  css:
+    - stashOpenInPlayer.css

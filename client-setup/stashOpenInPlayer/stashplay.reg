@@ -1,0 +1,21 @@
+Windows Registry Editor Version 5.00
+
+; Stash Open In Player - registers the stashplay:// URL scheme for the current
+; user (no administrator rights required).
+;
+; Before importing, edit the path to stashplay.ps1 below to wherever you put it.
+; Backslashes must be doubled in .reg files.
+
+[HKEY_CURRENT_USER\Software\Classes\stashplay]
+@="URL:Stash External Player"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\stashplay\DefaultIcon]
+@="C:\\Windows\\System32\\shell32.dll,115"
+
+[HKEY_CURRENT_USER\Software\Classes\stashplay\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\stashplay\shell\open]
+
+[HKEY_CURRENT_USER\Software\Classes\stashplay\shell\open\command]
+@="\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"C:\\Tools\\stashplay.ps1\" \"%1\""

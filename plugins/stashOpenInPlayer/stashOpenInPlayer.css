@@ -1,0 +1,14 @@
+/* Stash Open In Player */
+
+/* Injected into the stock .card-popovers ButtonGroup, so sizing is inherited
+   from Stash's own popover buttons. Only the hover tint is ours. */
+.scene-card .open-in-player-button:hover {
+  color: #fff;
+}
+
+/* Fallback row, used on scenes that have no tags/performers/etc. and so render
+   no stock popover row. Mirrors the native row's spacing. */
+.scene-card .card-popovers.open-in-player-fallback {
+  justify-content: center;
+  width: 100%;
+}
