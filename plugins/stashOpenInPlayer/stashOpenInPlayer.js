@@ -155,7 +155,15 @@
       : React.cloneElement(node, null, newChildren);
   }
 
-  PluginApi.patch.after("SceneCard.Popovers", function (props, result) {
+  // Stash calls after-functions as `afterFn.apply(ctx, args.concat(result))`,
+  // where `args` is what React passed the component. React invokes function
+  // components as (props, legacyContext), so this is called with three
+  // arguments, not two: (props, {}, result). Reading the result off the end
+  // keeps this correct under either arity.
+  PluginApi.patch.after("SceneCard.Popovers", function () {
+    const props = arguments[0];
+    const result = arguments[arguments.length - 1];
+
     // The stock row is suppressed on compact cards; match that.
     if (props.compact) return result;
 
