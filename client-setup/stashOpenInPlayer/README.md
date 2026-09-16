@@ -15,11 +15,13 @@ asks for your confirmation before handing the URL to Windows.
 
 1. Copy `stashplay.ps1` somewhere permanent, e.g. `C:\Tools\stashplay.ps1`.
 2. Run `install.ps1` with the path to it. A relative path is fine; it is stored
-   as an absolute one. Add `-StashUrl` with the address you open Stash at so the
-   browser stops asking before every click (see
-   [No "Always allow" option](#no-always-allow-option)):
+   as an absolute one. It also allows the Stash address to open links without
+   the browser asking every time (see
+   [No "Always allow" option](#no-always-allow-option)). The address defaults to
+   `http://192.168.178.11:9999`. If yours is different, pass `-StashUrl`:
 
    ```
+   powershell -ExecutionPolicy Bypass -File install.ps1 C:\Tools\stashplay.ps1
    powershell -ExecutionPolicy Bypass -File install.ps1 C:\Tools\stashplay.ps1 -StashUrl http://192.168.1.10:9999
    ```
 
@@ -29,7 +31,9 @@ asks for your confirmation before handing the URL to Windows.
 Options:
 
 - `-StashUrl` — one or more Stash addresses, comma-separated. Only scheme, host
-  and port are used, so a URL copied from the address bar works.
+  and port are used, so a URL copied from the address bar works. Default
+  `http://192.168.178.11:9999`. Pass `-StashUrl ""` to leave the browser policy
+  untouched.
 - `-Browser Brave|Chrome|Edge` — which browser's policy to set. Default `Brave`.
 - `-Scheme` — the URL scheme to register. Default `stashplay`; must match the
   plugin's **URL scheme** setting.
@@ -60,7 +64,7 @@ Chromium-based browsers (Chrome, Edge, Brave) only offer **Always allow** when
 Stash is served over HTTPS or from `localhost`. If you reach Stash over plain
 `http://` on the LAN, they ask on every click.
 
-Passing `-StashUrl` to `install.ps1` handles this. It sets the browser's
+`install.ps1` handles this for the `-StashUrl` addresses. It sets the browser's
 `AutoLaunchProtocolsFromOrigins` policy, which lets links from those Stash
 addresses open without the prompt. It is set per user, so no administrator
 rights are needed. The address must match the one you actually open Stash at: if

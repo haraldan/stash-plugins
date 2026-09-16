@@ -7,8 +7,8 @@ Writes the URL scheme registration under HKEY_CURRENT_USER, so no administrator
 rights are needed. Run it again after moving stashplay.ps1; it overwrites the
 previous registration.
 
-With -StashUrl it also sets the browser's AutoLaunchProtocolsFromOrigins
-policy, so links from that Stash address open without a confirmation prompt.
+It also sets the browser's AutoLaunchProtocolsFromOrigins policy for the
+-StashUrl addresses, so links from Stash open without a confirmation prompt.
 Chromium-based browsers only offer "Always allow" on HTTPS or localhost, so
 over plain http:// this is the only way to stop them asking on every click.
 Rules the policy already holds for other schemes are kept.
@@ -18,7 +18,8 @@ Path to stashplay.ps1, relative or absolute. It is stored as an absolute path.
 
 .PARAMETER StashUrl
 The address you open Stash at, e.g. http://192.168.1.10:9999. Only the scheme,
-host and port are used. Pass several to allow each of them.
+host and port are used. Pass several to allow each of them, or an empty string
+("") to leave the browser policy untouched. Defaults to http://192.168.178.11:9999.
 
 .PARAMETER Browser
 Which browser's policy -StashUrl sets.
@@ -34,7 +35,7 @@ param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$Path,
 
-    [string[]]$StashUrl,
+    [string[]]$StashUrl = 'http://192.168.178.11:9999',
 
     [ValidateSet('Brave', 'Chrome', 'Edge')]
     [string]$Browser = 'Brave',
