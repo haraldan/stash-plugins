@@ -39,8 +39,40 @@ allow** and confirm; it won't ask again.
 
 ## Troubleshooting
 
-Test the handler on its own first, before involving Stash. Get the encoded URL for
-a file you know exists:
+### The browser prompts "Open URL:Stash External Player?" but nothing happens
+
+The prompt means the registry entry is correct and Windows is handing the URL
+over, so the fault is in the script or its arguments. The handler runs with no
+visible window, so start with the log:
+
+```
+notepad %TEMP%\stashplay.log
+```
+
+**No log file, or no new `--- invoked with:` line.** The script never started.
+Almost always the path to `stashplay.ps1` in the `.reg` does not match where you
+actually put the file. Open `regedit`, check
+`HKEY_CURRENT_USER\Software\Classes\stashplay\shell\open\command`, and confirm the
+path in it exists.
+
+**`ERROR: path does not exist on this PC`.** The handler ran and decoded a path,
+but that path is wrong for this machine. The log line above it shows exactly
+what it tried. Compare it to the real location and fix **Path prefix (server)**
+and **Path prefix (client)** in the Stash plugin settings. Hovering the button in
+Stash shows the same path without having to click.
+
+**`launched OK` but no player appears.** Windows has no application associated
+with that file extension. Double-click the file in Explorer: if Windows asks you
+to choose a program, that is the problem. Either set a default for the extension,
+or pin a specific player (see below).
+
+**Still nothing.** Import `stashplay-debug.reg` (after editing its script path
+the same way) and click the button again. It keeps the PowerShell window open so
+you can read the error directly. Re-import `stashplay.reg` afterwards.
+
+### Testing the handler without Stash
+
+Get the encoded URL for a file you know exists:
 
 ```powershell
 $p = 'Z:\media\some video.mp4'
@@ -48,13 +80,8 @@ $b = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($p))
 'stashplay://open/' + $b.Replace('+','-').Replace('/','_').TrimEnd('=')
 ```
 
-Paste the result into Run (Win+R). If the player opens, the handler is fine and any
-remaining problem is the path mapping in the plugin settings. If nothing happens,
-check `%TEMP%\stashplay.log` — the script logs a line there when the path does not
-exist or decoding fails.
-
-If you hover the button in Stash, the tooltip shows the exact path that will be
-sent, which is usually enough to spot a wrong prefix.
+Paste the result into Run (Win+R). If the player opens, the handler is fine and
+any remaining problem is the path mapping in the plugin settings.
 
 ## Using a specific player
 
