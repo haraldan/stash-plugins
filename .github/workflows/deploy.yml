@@ -2,7 +2,7 @@ name: Deploy repository to Github Pages
 
 on:
   push:
-    branches: main
+    branches: [main]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -13,6 +13,13 @@ permissions:
   pages: write
   id-token: write
 
+# Pages allows one deployment to the github-pages environment at a time.
+# Without this, two overlapping runs race and one fails. Do not cancel an
+# in-progress run: that would abort a deployment that is already publishing.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,13 +28,17 @@ jobs:
       uses: actions/checkout@v4
       with:
         path: main
-        ref: main
+        # No `ref:` - default to the commit that triggered the run. Pinning to
+        # the branch would resolve its tip at checkout time, so a run could
+        # publish a different commit than the one it reports.
+        # build_site.sh reads git history for versions and dates, so it needs
+        # the full history rather than a shallow clone.
         fetch-depth: '0'
     - run: |
         cd main
         ./build_site.sh ../_site/main
     - uses: actions/upload-pages-artifact@v4
-    
+
   deploy:
     environment:
       name: github-pages
