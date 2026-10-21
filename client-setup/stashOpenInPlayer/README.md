@@ -113,10 +113,15 @@ is wrong for this machine. The `decoded path:` and `mapped path:` lines above th
 error show what Stash sent and what that was turned into. Run `install.ps1` again
 with corrected answers, or edit `stashplay.json` directly.
 
-**`launched OK` but no player appears.** Windows has no application associated
-with that file extension. Double-click the file in Explorer: if Windows asks you
-to choose a program, that is the problem. Either set a default for the extension,
-or pin a specific player (see below).
+**`ERROR: mpv not found`.** mpv is not where `$MpvExe` at the top of
+`stashplay.ps1` says. Fix that line.
+
+**`launched mpv OK` but no player appears.** mpv started but failed. Run the same
+file directly to see its error:
+`& 'C:\Program Files\MPV Player\mpv.exe' 'Y:\path\to\file.mkv'`.
+
+**`sent to running mpv OK` but nothing changes.** The video was loaded into an mpv
+window that is open but hidden behind other windows.
 
 **Still nothing.** Run the handler in a PowerShell window so you can see its
 errors directly. Take the URL from an `--- invoked with:` line in the log, or
@@ -139,13 +144,20 @@ $b = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($p))
 
 Paste the result into Run (Win+R). If the player opens, the whole chain works.
 
-### Using a specific player
+### Player
 
-The handler uses the Windows default for the file's extension. To pin a particular
-player, edit the `Start-Process` line in `stashplay.ps1`:
+The handler always opens mpv, whatever the Windows default for the file type is.
+It looks for it at `C:\Program Files\MPV Player\mpv.exe`; if yours is elsewhere,
+change `$MpvExe` at the top of `stashplay.ps1`.
 
-```powershell
-Start-Process 'C:\Program Files\mpv\mpv.exe' -ArgumentList $path
+mpv windows the handler starts listen on the named pipe `\\.\pipe\mpv-stashplay`.
+While one is open, the next click loads the new file into it, replacing what is
+playing, instead of opening a second window. Windows does not let the handler
+bring that window to the front. To have mpv windows you open yourself take files
+from Stash too, add this to `%APPDATA%\mpv\mpv.conf`:
+
+```
+input-ipc-server=\\.\pipe\mpv-stashplay
 ```
 
 ## Linux

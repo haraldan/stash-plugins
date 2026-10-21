@@ -11,7 +11,8 @@
 #
 # The path arrives exactly as Stash stores it, e.g. /data/Movies/x.mkv. This
 # script rewrites the prefix to where the share is on this PC, using
-# stashplay.json next to it (written by install.ps1), and converts / to \.
+# stashplay.json next to it (written by install.ps1), and converts / to \, then
+# opens the file in mpv, reusing the mpv window if one it started is still open.
 #
 # This runs with no visible window, so every step is logged. If something does
 # not work, read the log first:  %TEMP%\stashplay.log
@@ -20,6 +21,8 @@ param([string]$Url)
 
 $LogFile = Join-Path $env:TEMP 'stashplay.log'
 $ConfigFile = Join-Path $PSScriptRoot 'stashplay.json'
+$MpvExe = 'C:\Program Files\MPV Player\mpv.exe'
+$MpvPipe = 'mpv-stashplay'
 
 function Write-Log([string]$Message) {
     Add-Content -Path $LogFile -Value "$(Get-Date -Format s) $Message"
@@ -74,12 +77,41 @@ try {
         exit 1
     }
 
-    # No -FilePath player here: this uses the Windows shell association for the
-    # file's extension, i.e. whatever the default player is. To pin a specific
-    # player instead, replace this line with e.g.
-    #   Start-Process 'C:\Program Files\mpv\mpv.exe' -ArgumentList $path
-    Start-Process -FilePath $path
-    Write-Log "launched OK"
+    # An mpv this script started listens on $MpvPipe, so a running one is
+    # handed the file instead of a second window opening. Connect waits for the
+    # pipe to appear rather than failing at once, hence the short timeout: it
+    # is the delay before a fresh mpv starts.
+    $pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', $MpvPipe, [System.IO.Pipes.PipeDirection]::Out)
+    try {
+        $pipe.Connect(300)
+    } catch [TimeoutException] {
+        $pipe.Dispose()
+        $pipe = $null
+    }
+
+    if ($pipe) {
+        try {
+            # mpv's JSON IPC: one command per line, UTF-8.
+            $json = ConvertTo-Json -InputObject @{ command = @('loadfile', $path, 'replace') } -Compress
+            $writer = New-Object System.IO.StreamWriter($pipe, (New-Object System.Text.UTF8Encoding($false)))
+            $writer.Write("$json`n")
+            $writer.Flush()
+        } finally {
+            $pipe.Dispose()
+        }
+        Write-Log "sent to running mpv OK"
+    } else {
+        if (-not (Test-Path -LiteralPath $MpvExe -PathType Leaf)) {
+            Write-Log "ERROR: mpv not found at $MpvExe. Fix `$MpvExe at the top of this script."
+            exit 1
+        }
+        # mpv.exe, not mpv.com, which is the console build and would open a
+        # terminal window. Start-Process doesn't quote arguments, so the path is
+        # quoted here. pseudo-gui is what mpv's own shortcut uses: a window even
+        # for audio-only files, and no terminal output.
+        Start-Process -FilePath $MpvExe -ArgumentList "`"$path`"", '--player-operation-mode=pseudo-gui', "--input-ipc-server=\\.\pipe\$MpvPipe"
+        Write-Log "launched mpv OK"
+    }
 } catch {
     Write-Log "ERROR: $($_.Exception.Message)"
     exit 1
