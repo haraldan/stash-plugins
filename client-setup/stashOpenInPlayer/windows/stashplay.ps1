@@ -9,15 +9,33 @@
 # performs %1-style substitution on the command string, which can mangle a
 # percent-encoded path (a space becomes %20).
 #
+# The path arrives exactly as Stash stores it, e.g. /data/Movies/x.mkv. This
+# script rewrites the prefix to where the share is on this PC, using
+# stashplay.json next to it (written by install.ps1), and converts / to \.
+#
 # This runs with no visible window, so every step is logged. If something does
 # not work, read the log first:  %TEMP%\stashplay.log
 
 param([string]$Url)
 
 $LogFile = Join-Path $env:TEMP 'stashplay.log'
+$ConfigFile = Join-Path $PSScriptRoot 'stashplay.json'
 
 function Write-Log([string]$Message) {
     Add-Content -Path $LogFile -Value "$(Get-Date -Format s) $Message"
+}
+
+# Matches on whole path segments, so /data/ maps /data/x but not /database/x,
+# and a trailing separator on either prefix doesn't matter.
+function Convert-StashPath([string]$Path, [string]$From, [string]$To) {
+    $From = $From.TrimEnd('/')
+    $To = $To.TrimEnd('/', '\')
+    if ($Path -eq $From -or $Path.StartsWith("$From/", [StringComparison]::Ordinal)) {
+        $Path = $To + $Path.Substring($From.Length)
+    } else {
+        Write-Log "WARNING: path does not start with '$From/', so the prefix was left unchanged"
+    }
+    $Path.Replace('/', '\')
 }
 
 # Logged unconditionally: if this line is absent from the log, the script was
@@ -40,11 +58,19 @@ try {
         3 { $b64 += '=' }
     }
 
-    $path = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
-    Write-Log "decoded path: $path"
+    $stashPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
+    Write-Log "decoded path: $stashPath"
+
+    if (-not (Test-Path -LiteralPath $ConfigFile)) {
+        Write-Log "ERROR: $ConfigFile not found. Run install.ps1 with -PathTo."
+        exit 1
+    }
+    $config = [System.IO.File]::ReadAllText($ConfigFile) | ConvertFrom-Json
+    $path = Convert-StashPath $stashPath $config.pathFrom $config.pathTo
+    Write-Log "mapped path: $path"
 
     if (-not (Test-Path -LiteralPath $path)) {
-        Write-Log "ERROR: path does not exist on this PC. Check the pathFrom/pathTo settings in Stash."
+        Write-Log "ERROR: path does not exist on this PC. Check pathFrom/pathTo in $ConfigFile, or run install.ps1 again."
         exit 1
     }
 

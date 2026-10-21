@@ -7,6 +7,10 @@
 // that the client OS is registered to hand to a small handler script. See
 // client-setup/stashOpenInPlayer/README.md for the one-time client-side setup.
 //
+// The path is sent exactly as Stash stores it. Rewriting it to where the file
+// lives on the client is the handler's job, because only the client knows its
+// own drive letters and mount points.
+//
 // No build step: everything comes off window.PluginApi at runtime and elements
 // are built with React.createElement rather than JSX.
 
@@ -27,28 +31,12 @@
   const PLUGIN_ID = "stashOpenInPlayer";
 
   const DEFAULTS = {
-    pathFrom: "",
-    pathTo: "",
-    toBackslashes: true,
     scheme: "stashplay",
   };
 
   // -------------------------------------------------------------------------
-  // Path + URL
+  // URL
   // -------------------------------------------------------------------------
-
-  // Rewrites the server-side path into the path the client machine sees.
-  function mapPath(path, settings) {
-    if (!path) return null;
-    let out = path;
-    if (settings.pathFrom && out.startsWith(settings.pathFrom)) {
-      out = settings.pathTo + out.slice(settings.pathFrom.length);
-    }
-    if (settings.toBackslashes) {
-      out = out.replace(/\//g, "\\");
-    }
-    return out;
-  }
 
   // base64url, deliberately not percent-encoding: the Windows registry's
   // shell\open\command does %1-style substitution on the command string, so a
@@ -88,7 +76,7 @@
   function OpenInPlayerButton(props) {
     const settings = useSettings();
     const scene = props.scene;
-    const path = mapPath(scene?.files?.[0]?.path, settings);
+    const path = scene?.files?.[0]?.path;
 
     if (!path) return null;
 

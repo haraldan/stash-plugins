@@ -28,8 +28,8 @@ Adds a Markers link to performer pages
 
 Adds a button to each scene card's button row in the grid view that opens the scene's file in a video player on the machine you're browsing from.
 
-- Rewrites the path prefix Stash stores (`/data/media/`) to the one the client sees (`Z:\media\`), configured in the plugin settings
+- Sends the path as Stash stores it; each client's handler maps it to that machine's drive letter or mount point, so clients can differ
 - Hovering the button shows the exact path that will be sent
 - Falls back to a row of its own on scenes that have no tags, performers or other popover buttons
 
-Requires a one-time setup on each Windows client, since a browser cannot start a program directly — see [`client-setup/stashOpenInPlayer/README.md`](client-setup/stashOpenInPlayer/README.md).
+Requires a one-time setup on each Windows or Linux client, since a browser cannot start a program directly — see [`client-setup/stashOpenInPlayer/README.md`](client-setup/stashOpenInPlayer/README.md).
